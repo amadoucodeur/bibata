@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { aiProvider } from "@/src/ai/provider";
-import { getConcept, interestOptions, languages, missions, roadmap } from "@/src/data/curriculum";
-import { calculateMissionScore, createEmptyMastery, estimateLevel, getNextMission, updateConceptMastery } from "@/src/core/learning-engine";
-import { emptyState, storageRepository } from "@/src/storage/repository";
-import type { ConversationMessage, Exercise, ExerciseAttempt, LearningProfile, Mission, MissionScore, PersistedState } from "@/src/types/learning";
+import { aiProvider } from "@/ai/provider";
+import { getConcept, interestOptions, languages, missions, roadmap } from "@/data/curriculum";
+import { calculateMissionScore, createEmptyMastery, estimateLevel, getNextMission, updateConceptMastery } from "@/core/learning-engine";
+import { emptyState, storageRepository } from "@/storage/repository";
+import type { ConversationMessage, Exercise, ExerciseAttempt, LearningProfile, Mission, MissionScore, PersistedState } from "@/types/learning";
 
 type View = "onboarding-language" | "onboarding-interests" | "home" | "progress" | "settings" | "mission";
 type MissionStage = "intro" | "discover" | "context" | "exercise" | "conversation" | "result";

@@ -1,4 +1,4 @@
-import BibataApp from "@/src/features/BibataApp";
+import BibataApp from "@/features/BibataApp";
 
 export default function Home() {
   return <BibataApp />;

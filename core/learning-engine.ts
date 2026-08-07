@@ -5,7 +5,7 @@ import type {
   LearningProfile,
   Mission,
   MissionScore,
-} from "@/src/types/learning";
+} from "@/types/learning";
 
 export const LEARNING_CONSTANTS = {
   correctGain: 0.18,

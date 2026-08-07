@@ -1,4 +1,4 @@
-import type { ConceptMastery, LearningProfile, MissionProgress, PersistedState } from "@/src/types/learning";
+import type { ConceptMastery, LearningProfile, MissionProgress, PersistedState } from "@/types/learning";
 
 const DB_NAME = "bibata";
 const STORE_NAME = "learning-state";

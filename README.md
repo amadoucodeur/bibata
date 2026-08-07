@@ -31,12 +31,12 @@ bun run build
 
 ```text
 app/                    routes, métadonnées et styles
-src/ai/                 contrat AIProvider et mock local
-src/core/               moteur pédagogique indépendant de React
-src/data/               curriculum et contenu de démonstration
-src/features/           expérience interactive Bibata
-src/storage/            repository IndexedDB et migrations légères
-src/types/              modèles métier partagés
+ai/                     contrat AIProvider et mock local
+core/                   moteur pédagogique indépendant de React
+data/                   curriculum et contenu de démonstration
+features/               expérience interactive Bibata
+storage/                repository IndexedDB et migrations légères
+types/                  modèles métier partagés
 ```
 
 La vue React ne connaît pas IndexedDB directement. Elle utilise `StorageRepository`, ce qui permettra de synchroniser plus tard avec un backend sans réécrire le jeu. Le moteur pédagogique reste pur et testable sans navigateur.
@@ -47,11 +47,11 @@ La vue React ne connaît pas IndexedDB directement. Elle utilise `StorageReposit
 
 ## Mock IA
 
-`MockAIProvider` implémente le même contrat qu’un futur fournisseur distant : exercices, contexte, évaluation libre, tour de conversation et mission personnalisée. La boucle normale de jeu reste locale. Pour brancher un vrai fournisseur, créer une nouvelle implémentation de `AIProvider`, puis remplacer l’instance exportée dans `src/ai/provider.ts`. Les secrets devront alors être déplacés dans une route serveur `/api/ai`.
+`MockAIProvider` implémente le même contrat qu’un futur fournisseur distant : exercices, contexte, évaluation libre, tour de conversation et mission personnalisée. La boucle normale de jeu reste locale. Pour brancher un vrai fournisseur, créer une nouvelle implémentation de `AIProvider`, puis remplacer l’instance exportée dans `ai/provider.ts`. Les secrets devront alors être déplacés dans une route serveur `/api/ai`.
 
 ## Étendre le contenu
 
-- Ajouter une langue : compléter `languages`, puis fournir son curriculum dans `src/data`.
+- Ajouter une langue : compléter `languages`, puis fournir son curriculum dans `data/`.
 - Ajouter un monde : ajouter un `World` à `roadmap` et référencer ses missions.
 - Ajouter une mission : créer ses concepts, exercices déterministes et scénario de conversation.
 - Ajouter un exercice : étendre `ExerciseType`, son payload typé, puis créer son composant de rendu.

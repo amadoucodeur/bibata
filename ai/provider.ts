@@ -1,4 +1,4 @@
-import type { ConversationMessage, ConversationScenario, Exercise } from "@/src/types/learning";
+import type { ConversationMessage, ConversationScenario, Exercise } from "@/types/learning";
 
 export interface AIProvider {
   generateExercise(conceptIds: string[]): Promise<Exercise[]>;

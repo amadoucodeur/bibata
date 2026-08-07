@@ -1,4 +1,4 @@
-import type { Concept, Mission, Roadmap } from "@/src/types/learning";
+import type { Concept, Mission, Roadmap } from "@/types/learning";
 
 export const languages = [
   { code: "en", name: "English", flag: "🇬🇧", availability: "available" as const },
