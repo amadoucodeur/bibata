@@ -24,7 +24,7 @@ bun run build
 - Next.js 16 avec App Router, React 19 et TypeScript strict
 - Tailwind CSS 4 et styles globaux pour l’identité visuelle
 - IndexedDB pour les profils, progressions, maîtrises et résultats
-- `MockAIProvider` pour une expérience complète sans clé ni appel réseau
+- Mammouth AI pour les conversations et générations, avec `MockAIProvider` en repli
 - Tests du moteur avec le runner natif de Bun
 
 ## Architecture
@@ -45,9 +45,11 @@ La vue React ne connaît pas IndexedDB directement. Elle utilise `StorageReposit
 
 `IndexedDBStorageRepository` conserve une seule enveloppe versionnée : profils par langue, maîtrise des concepts, progression des missions et langue active. Un repli `localStorage` protège le prototype si IndexedDB est indisponible. Les réglages permettent l’export, l’import et la remise à zéro.
 
-## Mock IA
+## IA Mammouth et mode mock
 
-`MockAIProvider` implémente le même contrat qu’un futur fournisseur distant : exercices, contexte, évaluation libre, tour de conversation et mission personnalisée. La boucle normale de jeu reste locale. Pour brancher un vrai fournisseur, créer une nouvelle implémentation de `AIProvider`, puis remplacer l’instance exportée dans `ai/provider.ts`. Les secrets devront alors être déplacés dans une route serveur `/api/ai`.
+Le navigateur appelle uniquement `/api/ai` : la clé `MAMMOUTH_API_KEY` reste côté serveur. `MammouthAIProvider` couvre les exercices, le contexte, l’évaluation libre, les tours de conversation et les missions personnalisées. `MockAIProvider` prend automatiquement le relais si le réseau ou Mammouth est indisponible, afin de ne jamais bloquer une mission.
+
+Copier `.env.example` vers `.env.local`, puis renseigner la clé. `MAMMOUTH_MODEL` est facultatif et utilise `mistral-small-2603` par défaut pour privilégier des réponses courtes et rapides.
 
 ## Étendre le contenu
 
