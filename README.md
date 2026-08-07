@@ -1,36 +1,59 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Bibata
 
-## Getting Started
+Bibata est une application mobile-first d’apprentissage des langues par missions courtes. Le prototype apprend et évalue en même temps : découverte, contexte, exercices instantanés, conversation guidée, puis bilan.
 
-First, run the development server:
+## Démarrer
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
+bun install
 bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Ouvrir ensuite `http://localhost:3000`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Vérifications :
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+bun test
+bun run lint
+bun run build
+```
 
-## Learn More
+## Stack
 
-To learn more about Next.js, take a look at the following resources:
+- Next.js 16 avec App Router, React 19 et TypeScript strict
+- Tailwind CSS 4 et styles globaux pour l’identité visuelle
+- IndexedDB pour les profils, progressions, maîtrises et résultats
+- `MockAIProvider` pour une expérience complète sans clé ni appel réseau
+- Tests du moteur avec le runner natif de Bun
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Architecture
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```text
+app/                    routes, métadonnées et styles
+src/ai/                 contrat AIProvider et mock local
+src/core/               moteur pédagogique indépendant de React
+src/data/               curriculum et contenu de démonstration
+src/features/           expérience interactive Bibata
+src/storage/            repository IndexedDB et migrations légères
+src/types/              modèles métier partagés
+```
 
-## Deploy on Vercel
+La vue React ne connaît pas IndexedDB directement. Elle utilise `StorageRepository`, ce qui permettra de synchroniser plus tard avec un backend sans réécrire le jeu. Le moteur pédagogique reste pur et testable sans navigateur.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Stockage local
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+`IndexedDBStorageRepository` conserve une seule enveloppe versionnée : profils par langue, maîtrise des concepts, progression des missions et langue active. Un repli `localStorage` protège le prototype si IndexedDB est indisponible. Les réglages permettent l’export, l’import et la remise à zéro.
+
+## Mock IA
+
+`MockAIProvider` implémente le même contrat qu’un futur fournisseur distant : exercices, contexte, évaluation libre, tour de conversation et mission personnalisée. La boucle normale de jeu reste locale. Pour brancher un vrai fournisseur, créer une nouvelle implémentation de `AIProvider`, puis remplacer l’instance exportée dans `src/ai/provider.ts`. Les secrets devront alors être déplacés dans une route serveur `/api/ai`.
+
+## Étendre le contenu
+
+- Ajouter une langue : compléter `languages`, puis fournir son curriculum dans `src/data`.
+- Ajouter un monde : ajouter un `World` à `roadmap` et référencer ses missions.
+- Ajouter une mission : créer ses concepts, exercices déterministes et scénario de conversation.
+- Ajouter un exercice : étendre `ExerciseType`, son payload typé, puis créer son composant de rendu.
+
+Le contenu de démonstration rend l’anglais jouable sur deux missions : **Nice to Meet You** et **My Everyday Life**. Les autres langues et mondes sont annoncés comme futurs contenus, sans simuler une disponibilité qui n’existe pas encore.
