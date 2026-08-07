@@ -38,7 +38,7 @@ export const concepts: Concept[] = [
     level: "A1",
     categories: ["introductions"],
     examples: [
-      { text: "Hi Maya, nice to meet you!", translation: "Salut Maya, enchanté !" },
+      { text: "Hi Bibata, nice to meet you!", translation: "Salut Bibata, enchanté !" },
     ],
   },
   {
@@ -165,8 +165,8 @@ export const missions: Mission[] = [
     conversation: {
       id: "intro-party",
       title: "Une rencontre à Londres",
-      setting: "Tu arrives à une soirée. Maya vient te saluer.",
-      characterName: "Maya",
+      setting: "Tu arrives à une soirée. Bibata vient te saluer.",
+      characterName: "Bibata",
       characterRole: "Nouvelle connaissance",
       objectives: ["saluer", "te présenter", "dire d'où tu viens"],
       targetConcepts: ["hello", "nice-to-meet-you", "im-from"],
