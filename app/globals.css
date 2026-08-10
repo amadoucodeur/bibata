@@ -463,3 +463,18 @@ body { line-height: 1.45; overscroll-behavior-y: none; }
 @media (prefers-reduced-motion: reduce) {
   .page-enter { animation: none; }
 }
+
+/* Conversation viewport: the mission controls stay visible while messages scroll. */
+.mission-shell.conversation-shell { height: 100dvh; min-height: 100dvh; max-height: 100dvh; display: flex; flex-direction: column; overflow: hidden; padding-bottom: max(10px, env(safe-area-inset-bottom)); }
+.conversation-shell .mission-header { position: sticky; top: 0; z-index: 20; flex: none; background: var(--paper); }
+.conversation-shell .conversation-stage { min-height: 0; flex: 1; display: flex; flex-direction: column; padding-top: 8px; }
+.conversation-shell .scenario-card { flex: none; }
+.conversation-shell .chat-window { min-height: 0; max-height: none; flex: 1; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.chat-composer { position: sticky; bottom: 0; z-index: 15; flex: none; padding-top: 8px; background: linear-gradient(0deg, var(--paper) 84%, rgba(248,241,232,.9)); }
+.chat-composer .conversation-error { margin-bottom: 8px; }
+.chat-composer .reply-suggestions { padding-top: 0; }
+.chat-input input:disabled { color: var(--ink-soft); opacity: 1; }
+
+@media (min-width: 700px) {
+  .mission-shell.conversation-shell { height: min(880px, calc(100dvh - 48px)); min-height: min(880px, calc(100dvh - 48px)); max-height: min(880px, calc(100dvh - 48px)); }
+}
