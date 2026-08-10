@@ -43,12 +43,28 @@ const parseState = (value: unknown): PersistedState => {
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, SCHEMA_VERSION);
+    let settled = false;
+    const timeout = window.setTimeout(() => {
+      settled = true;
+      reject(new Error("IndexedDB open timed out"));
+    }, 1_500);
     request.onupgradeneeded = () => {
       const db = request.result;
       if (!db.objectStoreNames.contains(STORE_NAME)) db.createObjectStore(STORE_NAME);
     };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      window.clearTimeout(timeout);
+      if (settled) request.result.close();
+      else { settled = true; resolve(request.result); }
+    };
+    request.onerror = () => {
+      window.clearTimeout(timeout);
+      if (!settled) { settled = true; reject(request.error); }
+    };
+    request.onblocked = () => {
+      window.clearTimeout(timeout);
+      if (!settled) { settled = true; reject(new Error("IndexedDB is blocked")); }
+    };
   });
 }
 
@@ -78,24 +94,37 @@ async function writeIndexedDB(state: PersistedState): Promise<void> {
 
 export class IndexedDBStorageRepository implements StorageRepository {
   private memoryState = structuredClone(emptyState);
+  private hydrated = false;
+  private writeQueue = Promise.resolve();
 
   async getState() {
+    if (this.hydrated) return structuredClone(this.memoryState);
     try {
       this.memoryState = await readIndexedDB();
     } catch {
       const fallback = typeof localStorage !== "undefined" ? localStorage.getItem(DB_NAME) : null;
-      this.memoryState = fallback ? parseState(JSON.parse(fallback)) : structuredClone(emptyState);
+      try {
+        this.memoryState = fallback ? parseState(JSON.parse(fallback)) : structuredClone(emptyState);
+      } catch {
+        this.memoryState = structuredClone(emptyState);
+      }
     }
+    this.hydrated = true;
     return structuredClone(this.memoryState);
   }
 
   async saveState(state: PersistedState) {
     this.memoryState = parseState(state);
-    try {
-      await writeIndexedDB(this.memoryState);
-    } catch {
-      if (typeof localStorage !== "undefined") localStorage.setItem(DB_NAME, JSON.stringify(this.memoryState));
-    }
+    this.hydrated = true;
+    const snapshot = structuredClone(this.memoryState);
+    this.writeQueue = this.writeQueue.then(async () => {
+      try {
+        await writeIndexedDB(snapshot);
+      } catch {
+        if (typeof localStorage !== "undefined") localStorage.setItem(DB_NAME, JSON.stringify(snapshot));
+      }
+    });
+    await this.writeQueue;
   }
 
   async getLearningProfiles() {

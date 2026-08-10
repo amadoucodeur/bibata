@@ -1,18 +1,26 @@
 import sharp from "sharp";
+import { readFile } from "node:fs/promises";
+
+const logo = await readFile("public/brand/bibata-logo-d.png");
 
 const renderIcon = async (size, destination, safeArea = false) => {
-  const inset = safeArea ? Math.round(size * 0.16) : Math.round(size * 0.08);
-  const tileSize = size - inset * 2;
-  const radius = Math.round(tileSize * 0.28);
-  const fontSize = Math.round(tileSize * 0.64);
-  const dotSize = Math.round(tileSize * 0.055);
-  const svg = `<svg width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg">
-    <rect width="${size}" height="${size}" fill="#1d5548"/>
-    <rect x="${inset}" y="${inset}" width="${tileSize}" height="${tileSize}" rx="${radius}" fill="#bdebd8"/>
-    <circle cx="${inset + tileSize * 0.82}" cy="${inset + tileSize * 0.18}" r="${dotSize}" fill="#ee8d69"/>
-    <text x="50%" y="53%" text-anchor="middle" dominant-baseline="middle" font-family="Georgia, serif" font-size="${fontSize}" font-weight="700" fill="#17362f">b</text>
-  </svg>`;
-  await sharp(Buffer.from(svg)).png().toFile(destination);
+  const markSize = Math.round(size * (safeArea ? 0.58 : 0.72));
+  const offset = Math.round((size - markSize) / 2);
+  const mark = await sharp(logo).resize({
+    width: markSize,
+    height: markSize,
+    fit: "contain",
+    background: { r: 0, g: 0, b: 0, alpha: 0 },
+  }).png().toBuffer();
+
+  await sharp({
+    create: {
+      width: size,
+      height: size,
+      channels: 4,
+      background: "#f8f1e8",
+    },
+  }).composite([{ input: mark, left: offset, top: offset }]).png().toFile(destination);
 };
 
 await renderIcon(192, "public/icon-192.png");

@@ -52,6 +52,34 @@ export interface LanguageAbility {
   production: number;
 }
 
+export interface PersonalizedMissionPlan {
+  id: string;
+  order: number;
+  title: string;
+  eyebrow: string;
+  description: string;
+  interest: string;
+  conceptIds: string[];
+  conversation: {
+    title: string;
+    setting: string;
+    characterName: string;
+    characterRole: string;
+    objectives: string[];
+    opening: string;
+  };
+}
+
+export interface LearningPlan {
+  id: string;
+  level: CEFRLevel;
+  title: string;
+  focus: string;
+  createdAt: number;
+  learnerSeed: string;
+  missions: PersonalizedMissionPlan[];
+}
+
 export interface LearningProfile {
   id: string;
   language: string;
@@ -63,6 +91,7 @@ export interface LearningProfile {
   ability: LanguageAbility;
   currentMissionId?: string;
   completedMissionIds: string[];
+  learningPlan?: LearningPlan;
   createdAt: number;
   updatedAt: number;
 }
@@ -114,10 +143,12 @@ export interface ConversationScenario {
   objectives: string[];
   targetConcepts: string[];
   suggestedReplies: string[];
+  opening?: string;
 }
 
 export interface Mission {
   id: string;
+  level?: CEFRLevel;
   worldId: string;
   order: number;
   title: string;

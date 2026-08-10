@@ -1,10 +1,15 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import mascotAvatar from "@/public/brand/bibata-avatar.webp";
+import logoMark from "@/public/brand/bibata-logo-d.png";
+import mascot from "@/public/brand/bibata-mascot.webp";
 import { AIProviderError, aiProvider } from "@/ai/provider";
 import { countCompletedConversationTurns } from "@/core/conversation";
-import { calculateMissionScore, createEmptyMastery, getNextMission, updateConceptMastery } from "@/core/learning-engine";
-import { getConcept, interestOptions, languages, missions, roadmap } from "@/data/curriculum";
+import { calculateMissionScore, createEmptyMastery, updateConceptMastery } from "@/core/learning-engine";
+import { buildMissionsFromPlan, getMissionsForProfile } from "@/core/personalization";
+import { getConcept, getTrackMeta, interestOptions, languages, missions, roadmap } from "@/data/curriculum";
 import { emptyState, storageRepository } from "@/storage/repository";
 import { usePWA } from "@/features/usePWA";
 import {
@@ -21,6 +26,8 @@ import {
 
 type View = "onboarding-language" | "onboarding-level" | "onboarding-interests" | "home" | "progress" | "settings" | "mission";
 type MissionStage = "intro" | "discover" | "context" | "exercise" | "conversation" | "result";
+type PlanningTask = "first-plan" | "recompose" | "next-mission" | "migration";
+type PlanningState = { mode: "foreground" | "background"; task: PlanningTask } | null;
 
 const initialAbility = { vocabulary: 0.12, grammar: 0.1, comprehension: 0.14, recall: 0.08, production: 0.06 };
 const normalizeAnswer = (value: string) => value.toLowerCase().replace(/[.!?,’']/g, "").replace(/\s+/g, " ").trim();
@@ -33,8 +40,78 @@ const levelHints: Record<CEFRLevel, string> = {
   C1: "Je parle de sujets complexes",
   C2: "Je cherche précision et nuances",
 };
+const firstMissionGreetings: Record<CEFRLevel, string> = {
+  A1: "Prêt·e pour tes premiers mots ?",
+  A2: "Prêt·e à gagner en autonomie ?",
+  B1: "Prêt·e à raconter et argumenter ?",
+  B2: "Prêt·e à parler avec plus de naturel ?",
+  C1: "Prêt·e à affiner ta pensée ?",
+  C2: "Prêt·e à jouer avec les nuances ?",
+};
+const levelGuidance: Record<CEFRLevel, string> = {
+  A1: "Repère les mots essentiels et le rythme de la phrase.",
+  A2: "Observe comment la structure permet d'agir dans une situation courante.",
+  B1: "Repère le lien logique entre les idées pour réutiliser la tournure naturellement.",
+  B2: "Note la nuance : la formulation maintient le dialogue sans effacer le désaccord.",
+  C1: "Observe la précision du positionnement et ce que chaque connecteur concède ou défend.",
+  C2: "Cherche le sous-texte, l'intention rhétorique et l'effet produit au-delà du sens littéral.",
+};
 
-const Logo = () => <span className="brand" aria-label="Bibata"><span className="brand-mark" aria-hidden="true">b</span><span>Bibata</span></span>;
+const LogoMark = ({ className = "" }: { className?: string }) => (
+  <Image className={`logo-symbol ${className}`.trim()} src={logoMark} alt="" aria-hidden="true" sizes="40px" />
+);
+
+const Logo = () => <span className="brand" aria-label="Bibata"><LogoMark /><span>Bibata</span></span>;
+
+function BibataCoach({ children, title = "Le conseil de Bibata", tone = "guide", compact = false, announce = false }: { children: ReactNode; title?: string; tone?: "guide" | "success" | "gentle" | "dark"; compact?: boolean; announce?: boolean }) {
+  return <aside className={`bibata-coach ${tone} ${compact ? "compact" : ""}`.trim()} aria-label={title} role={announce ? "status" : undefined} aria-live={announce ? "polite" : undefined}>
+    <span className="bibata-coach-avatar" aria-hidden="true"><Image src={mascotAvatar} alt="" sizes={compact ? "46px" : "58px"} /></span>
+    <div><strong>{title}</strong><p>{children}</p></div>
+  </aside>;
+}
+
+function AIWaitingScreen({ task, level }: { task: PlanningTask; level: CEFRLevel }) {
+  const [messageIndex, setMessageIndex] = useState(0);
+  const copy: Record<PlanningTask, { eyebrow: string; title: string; description: string }> = {
+    "first-plan": { eyebrow: "Une route rien qu’à toi", title: "Ton parcours prend forme.", description: "Bibata assemble une première mission à partir de ton niveau et de ce qui t’intéresse." },
+    recompose: { eyebrow: "Un nouveau souffle", title: "Bibata redessine ton parcours.", description: "Elle garde ton niveau, puis imagine un autre chemin pour rendre la suite plus vivante." },
+    "next-mission": { eyebrow: "La suite se révèle", title: "Ta prochaine mission se compose.", description: "Le fil continue, mais la situation change pour que ton expérience reste surprenante." },
+    migration: { eyebrow: "Parcours personnel", title: "Bibata prépare ta nouvelle route.", description: "Ton expérience existante est conservée pendant que la suite devient plus personnelle." },
+  };
+  const messages = [
+    "Je relie tes centres d’intérêt…",
+    `J’accorde les échanges à ton niveau ${level}…`,
+    "Je prépare une situation vivante et différente…",
+  ];
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setMessageIndex((current) => (current + 1) % 3), 2_200);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const current = copy[task];
+  return <main className="ai-waiting-screen page-enter" aria-busy="true">
+    <header className="ai-waiting-header"><Logo /><span className="ai-live-pill"><i aria-hidden="true" /> IA en cours</span></header>
+    <section className="ai-waiting-content">
+      <div className="ai-loom" aria-hidden="true">
+        <span className="ai-orbit orbit-one" /><span className="ai-orbit orbit-two" />
+        <span className="ai-spark spark-one">✦</span><span className="ai-spark spark-two">·</span><span className="ai-spark spark-three">✦</span>
+        <span className="ai-thought thought-one">mot</span><span className="ai-thought thought-two">{level}</span><span className="ai-thought thought-three">idée</span>
+        <span className="ai-mascot-halo" />
+        <Image className="ai-mascot" src={mascot} alt="" sizes="(min-width: 700px) 210px, 180px" />
+      </div>
+      <p className="eyebrow">{current.eyebrow}</p>
+      <h1>{current.title}</h1>
+      <p className="ai-waiting-description">{current.description}</p>
+      <div className="ai-status" role="status" aria-live="polite">
+        <span className="ai-status-mark" aria-hidden="true"><i /><i /><i /></span>
+        <p key={messageIndex}>{messages[messageIndex]}</p>
+      </div>
+      <div className="ai-indeterminate" aria-hidden="true"><span /></div>
+      <small>Tu n’as rien à faire, Bibata s’occupe du fil.</small>
+    </section>
+  </main>;
+}
 
 function ProgressLine({ value, label = "Progression" }: { value: number; label?: string }) {
   const safeValue = Math.max(0, Math.min(100, value));
@@ -72,7 +149,7 @@ function OnboardingLanguage({ onChoose }: { onChoose: (code: string) => void }) 
 function OnboardingLevel({ selected, onBack, onSelect, onContinue }: { selected: CEFRLevel; onBack: () => void; onSelect: (level: CEFRLevel) => void; onContinue: () => void }) {
   return <main className="onboarding-shell page-enter">
     <header className="onboarding-header"><button className="icon-button" type="button" onClick={onBack} aria-label="Retour">←</button><span className="step-count">2 sur 3</span></header>
-    <section className="onboarding-copy compact"><p className="eyebrow">À ton rythme</p><h1>Où en es-tu<br />aujourd’hui ?</h1><p>Ce choix adapte immédiatement la difficulté des conversations. Tu pourras le modifier à tout moment.</p></section>
+    <section className="onboarding-copy compact"><p className="eyebrow">À ton rythme</p><h1>Où en es-tu<br />aujourd’hui ?</h1><p>Ce choix adapte immédiatement le parcours, les exercices et les conversations. Tu pourras le modifier à tout moment.</p></section>
     <div className="level-options" aria-label="Choisir un niveau CECR">
       {CEFR_LEVELS.map((level) => { const active = level === selected; return <button key={level} type="button" className={active ? "selected" : ""} aria-pressed={active} onClick={() => onSelect(level)}><span>{level}</span><div><strong>{levelDescriptions[level]}</strong><small>{levelHints[level]}</small></div><i aria-hidden="true">{active ? "✓" : ""}</i></button>; })}
     </div>
@@ -80,7 +157,7 @@ function OnboardingLevel({ selected, onBack, onSelect, onContinue }: { selected:
   </main>;
 }
 
-function OnboardingInterests({ onBack, onContinue }: { onBack: () => void; onContinue: (interests: string[]) => void }) {
+function OnboardingInterests({ loading, error, onBack, onContinue }: { loading: boolean; error: string; onBack: () => void; onContinue: (interests: string[]) => void }) {
   const [selected, setSelected] = useState<string[]>(["travel", "music"]);
   const [custom, setCustom] = useState("");
   const toggle = (id: string) => setSelected((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
@@ -93,7 +170,8 @@ function OnboardingInterests({ onBack, onContinue }: { onBack: () => void; onCon
     </div>
     <form className="custom-interest" onSubmit={(event) => { event.preventDefault(); submitCustom(); }}><input value={custom} onChange={(event) => setCustom(event.target.value)} placeholder="Ajouter un intérêt…" aria-label="Ajouter un intérêt" /><button type="submit" disabled={!custom.trim()} aria-label="Ajouter cet intérêt">+</button></form>
     <div className="custom-tags">{selected.filter((item) => !interestOptions.some((option) => option.id === item)).map((item) => <button type="button" className="custom-tag" key={item} onClick={() => toggle(item)}>{item} <span aria-hidden="true">×</span></button>)}</div>
-    <div className="sticky-action"><button className="primary-button" type="button" onClick={() => onContinue(selected)} disabled={selected.length === 0}>Créer mon parcours <span>→</span></button></div>
+    {error && <div className="plan-error" role="alert"><strong>Le parcours n’a pas pu être préparé</strong><p>{error}</p></div>}
+    <div className="sticky-action"><button className="primary-button" type="button" onClick={() => onContinue(selected)} disabled={selected.length === 0 || loading}>{loading ? "Bibata compose ton parcours…" : "Créer mon parcours"} <span>{loading ? "✦" : "→"}</span></button></div>
   </main>;
 }
 
@@ -110,23 +188,28 @@ function AppHeader({ completedCount }: { completedCount: number }) {
   return <header className="app-header"><Logo /><span className="completion-badge" aria-label={`${completedCount} mission${completedCount > 1 ? "s" : ""} terminée${completedCount > 1 ? "s" : ""}`}><span aria-hidden="true">✓</span>{completedCount}</span></header>;
 }
 
-function HomeScreen({ profile, learnedCount, canInstall, offlineReady, onContinue, onInstall, onNavigate }: { profile: LearningProfile; learnedCount: number; canInstall: boolean; offlineReady: boolean; onContinue: () => void; onInstall: () => void; onNavigate: (view: View) => void }) {
-  const nextMission = getNextMission(profile, missions) ?? missions[0];
-  const completed = profile.completedMissionIds.length;
+function HomeScreen({ profile, availableMissions, learnedCount, canInstall, offlineReady, planningPlan, planIssue, onContinue, onRetry, onInstall, onNavigate }: { profile: LearningProfile; availableMissions: Mission[]; learnedCount: number; canInstall: boolean; offlineReady: boolean; planningPlan: boolean; planIssue: string; onContinue: () => void; onRetry: () => void; onInstall: () => void; onNavigate: (view: View) => void }) {
+  const currentLevel = profile.estimatedLevel ?? "A1";
+  const nextMission = availableMissions.find((mission) => !profile.completedMissionIds.includes(mission.id));
+  const completed = availableMissions.filter((mission) => profile.completedMissionIds.includes(mission.id)).length;
   const currentWorld = roadmap.worlds[0];
-  const currentWorldMissions = currentWorld.missionIds.filter((id) => missions.some((mission) => mission.id === id));
+  const currentWorldMissions = availableMissions.filter((mission) => mission.worldId === currentWorld.id).map((mission) => mission.id);
   const completedInWorld = currentWorldMissions.filter((id) => profile.completedMissionIds.includes(id)).length;
-  const worldProgress = currentWorldMissions.length ? Math.round((completedInWorld / currentWorldMissions.length) * 100) : 0;
+  const worldProgress = completed ? Math.round((completed / (completed + 1)) * 100) : 0;
   const ringStyle = { "--ring-progress": `${worldProgress * 3.6}deg` } as CSSProperties;
+  const trackMeta = profile.learningPlan?.level === currentLevel
+    ? { title: profile.learningPlan.title, eyebrow: profile.learningPlan.focus }
+    : getTrackMeta(currentLevel);
   return <main className="app-shell page-enter"><AppHeader completedCount={completed} />
-    <section className="greeting"><p>Bonjour <span aria-hidden="true">👋</span></p><h1>{completed ? "On garde le rythme ?" : "Prêt·e pour tes premiers mots ?"}</h1></section>
+    <section className="greeting"><p>Bonjour <span aria-hidden="true">👋</span></p><h1>{completed ? "On garde le rythme ?" : firstMissionGreetings[currentLevel]}</h1></section>
+    {(planningPlan || planIssue) && <section className={`plan-status-card ${planIssue ? "error" : ""}`} role={planIssue ? "alert" : "status"}><span aria-hidden="true">✦</span><div><strong>{planningPlan ? "Bibata prépare la suite…" : "La prochaine mission attend"}</strong><p>{planningPlan ? "Ton fil reste le même pendant qu’une nouvelle situation se compose discrètement." : planIssue}</p></div>{planIssue && <button type="button" onClick={onRetry}>Réessayer</button>}</section>}
     <div className="home-grid">
       <section className="hero-card" aria-labelledby="next-mission-title"><div className="hero-card-top"><span className="language-pill">{profile.languageFlag} {profile.languageName}</span><span className="hero-level">Niveau {profile.estimatedLevel ?? "A1"}</span></div>
         <div className="level-row"><div><small>Missions terminées</small><strong>{completed}</strong></div><div><small>Concepts rencontrés</small><strong>{learnedCount}</strong></div></div>
-        <div className="mission-preview"><span className="mission-number">{String(nextMission.order).padStart(2, "0")}</span><div><small>Prochaine mission · {nextMission.eyebrow}</small><h2 id="next-mission-title">{nextMission.title}</h2><p>Environ {nextMission.durationMinutes} min · {nextMission.conceptIds.length} concepts</p></div></div>
-        <button className="primary-button light" type="button" onClick={onContinue}>{completed ? "Continuer mon parcours" : "Commencer ma première mission"}<span>→</span></button></section>
+        {nextMission ? <div className="mission-preview"><span className="mission-number">{String(nextMission.order).padStart(2, "0")}</span><div><small>Prochaine mission · {nextMission.eyebrow}</small><h2 id="next-mission-title">{nextMission.title}</h2><p>Environ {nextMission.durationMinutes} min · {nextMission.conceptIds.length} concepts</p></div></div> : <div className="mission-preview"><span className="mission-number">✦</span><div><small>Prochaine sélection</small><h2 id="next-mission-title">{planningPlan ? "Elle arrive…" : "Prête à être composée"}</h2><p>Bibata repart exactement de là où tu t’es arrêté·e.</p></div></div>}
+        <button className="primary-button light" type="button" onClick={!nextMission && planIssue ? onRetry : onContinue} disabled={!nextMission && planningPlan}>{nextMission ? (completed ? "Continuer mon parcours" : "Commencer ma première mission") : (planIssue ? "Réessayer" : "Préparer la suite")}<span>{planningPlan && !nextMission ? "✦" : "→"}</span></button></section>
       <div className="home-side">
-        <section className="today-strip"><div className="mini-ring" style={ringStyle}><strong>{completedInWorld}</strong><small>/{currentWorldMissions.length}</small></div><div><strong>{currentWorld.title}</strong><p>{worldProgress === 100 ? "Monde terminé — bravo !" : `${worldProgress}% du monde accompli`}</p></div></section>
+        <section className="today-strip"><div className="mini-ring" style={ringStyle}><strong>{completedInWorld}</strong><small>✓</small></div><div><strong>{trackMeta.title}</strong><p>{completed ? "La suite évolue avec toi" : trackMeta.eyebrow}</p></div></section>
         <section className="availability-card"><span aria-hidden="true">✦</span><div><strong>Des sessions courtes, sans pression</strong><p>Une mission suffit pour avancer. Ta progression est enregistrée automatiquement.</p></div></section>
         {canInstall && <button type="button" className="install-card" onClick={onInstall}><span aria-hidden="true">↓</span><div><strong>Installer Bibata</strong><small>{offlineReady ? "Accès rapide et interface disponible hors ligne" : "Retrouve Bibata comme une application"}</small></div><i aria-hidden="true">→</i></button>}
       </div>
@@ -135,17 +218,23 @@ function HomeScreen({ profile, learnedCount, canInstall, offlineReady, onContinu
   </main>;
 }
 
-function ProgressScreen({ profile, masteryCount, onContinue, onNavigate }: { profile: LearningProfile; masteryCount: number; onContinue: () => void; onNavigate: (view: View) => void }) {
+function ProgressScreen({ profile, availableMissions, masteryCount, onContinue, onNavigate }: { profile: LearningProfile; availableMissions: Mission[]; masteryCount: number; onContinue: () => void; onNavigate: (view: View) => void }) {
   const currentLevel = profile.estimatedLevel ?? "A1";
-  return <main className="app-shell page-enter"><AppHeader completedCount={profile.completedMissionIds.length} />
+  const completedCount = availableMissions.filter((mission) => profile.completedMissionIds.includes(mission.id)).length;
+  const trackMeta = profile.learningPlan?.level === currentLevel
+    ? { title: profile.learningPlan.title, eyebrow: profile.learningPlan.focus }
+    : getTrackMeta(currentLevel);
+  return <main className="app-shell page-enter"><AppHeader completedCount={completedCount} />
     <section className="page-heading"><p className="eyebrow">Ton chemin</p><h1>{profile.languageFlag} {profile.languageName}</h1><p>Une vue claire de ce que tu as déjà parcouru et de la prochaine étape.</p></section>
-    <section className="level-card"><div className="level-badge">{currentLevel}</div><div><small>Niveau choisi</small><strong>{levelDescriptions[currentLevel]}</strong><p>Les conversations et le modèle IA s’adaptent à ce niveau.</p></div><button type="button" onClick={() => onNavigate("settings")}>Modifier</button></section>
-    <div className="stat-pair"><div><strong>{masteryCount}</strong><span>concepts rencontrés</span></div><div><strong>{profile.completedMissionIds.length}</strong><span>missions terminées</span></div></div>
+    <section className="level-card"><div className="level-badge">{currentLevel}</div><div><small>Niveau choisi</small><strong>{levelDescriptions[currentLevel]}</strong><p>Les missions, les exercices, les conversations et le modèle IA s’adaptent à ce niveau.</p></div><button type="button" onClick={() => onNavigate("settings")}>Modifier</button></section>
+    <div className="stat-pair"><div><strong>{masteryCount}</strong><span>concepts rencontrés</span></div><div><strong>{completedCount}</strong><span>missions terminées</span></div></div>
     <section className="roadmap-list" aria-label="Mondes d’apprentissage">{roadmap.worlds.map((world, index) => {
-      const availableMissionIds = world.missionIds.filter((id) => missions.some((mission) => mission.id === id));
+      const availableMissionIds = availableMissions.filter((mission) => mission.worldId === world.id).map((mission) => mission.id);
       const completed = availableMissionIds.filter((id) => profile.completedMissionIds.includes(id)).length;
       const available = availableMissionIds.length > 0;
-      return <article className={`world-card ${available ? "current" : "locked"}`} key={world.id}><div className={`world-icon ${world.accent}`} aria-hidden="true">{index === 0 ? "✦" : index === 1 ? "⌂" : "↗"}</div><div><small>Monde {index + 1}</small><h2>{world.title}</h2><p>{world.eyebrow}</p><span>{available ? `${completed} / ${availableMissionIds.length} missions` : "Bientôt disponible"}</span>{available && <button type="button" onClick={onContinue}>Continuer ce monde <b aria-hidden="true">→</b></button>}</div></article>;
+      const title = index === 0 ? trackMeta.title : world.title;
+      const eyebrow = index === 0 ? trackMeta.eyebrow : world.eyebrow;
+      return <article className={`world-card ${available ? "current" : "locked"}`} key={world.id}><div className={`world-icon ${world.accent}`} aria-hidden="true">{index === 0 ? "✦" : index === 1 ? "⌂" : "↗"}</div><div><small>Monde {index + 1}</small><h2>{title}</h2><p>{eyebrow}</p><span>{available ? `${completed} mission${completed > 1 ? "s" : ""} terminée${completed > 1 ? "s" : ""} · la suite se révèle progressivement` : "Bientôt disponible"}</span>{available && <button type="button" onClick={onContinue}>Continuer ce monde <b aria-hidden="true">→</b></button>}</div></article>;
     })}</section>
     <BottomNav active="progress" onNavigate={onNavigate} />
   </main>;
@@ -158,8 +247,10 @@ interface PWAStatus {
   offlineReady: boolean;
 }
 
-function SettingsScreen({ profile, pwa, onInstall, onNavigate, onNotify, onResetRequest, onImport, onLevelChange }: { profile: LearningProfile; pwa: PWAStatus; onInstall: () => void; onNavigate: (view: View) => void; onNotify: (message: string) => void; onResetRequest: () => void; onImport: (value: string) => void; onLevelChange: (level: CEFRLevel) => void }) {
+function SettingsScreen({ profile, pwa, planningPlan, onInstall, onNavigate, onNotify, onResetRequest, onImport, onLevelChange, onReplan }: { profile: LearningProfile; pwa: PWAStatus; planningPlan: boolean; onInstall: () => void; onNavigate: (view: View) => void; onNotify: (message: string) => void; onResetRequest: () => void; onImport: (value: string) => void; onLevelChange: (level: CEFRLevel) => void; onReplan: () => void }) {
   const importRef = useRef<HTMLInputElement>(null);
+  const currentLevel = profile.estimatedLevel ?? "A1";
+  const completedCount = getMissionsForProfile(profile, currentLevel).filter((mission) => profile.completedMissionIds.includes(mission.id)).length;
   const exportData = async () => {
     const value = await storageRepository.exportJSON();
     const blob = new Blob([value], { type: "application/json" });
@@ -171,10 +262,10 @@ function SettingsScreen({ profile, pwa, onInstall, onNavigate, onNotify, onReset
     onNotify("Sauvegarde téléchargée");
   };
   const installDescription = pwa.isInstalled ? "Bibata est déjà installée" : pwa.canInstall ? "Ajoute Bibata à ton écran d’accueil" : "Disponible depuis le menu de ton navigateur";
-  return <main className="app-shell page-enter"><AppHeader completedCount={profile.completedMissionIds.length} /><section className="page-heading"><p className="eyebrow">Ton expérience</p><h1>Réglages</h1><p>Personnalise Bibata et garde le contrôle sur tes données.</p></section>
+  return <main className="app-shell page-enter"><AppHeader completedCount={completedCount} /><section className="page-heading"><p className="eyebrow">Ton expérience</p><h1>Réglages</h1><p>Personnalise Bibata et garde le contrôle sur tes données.</p></section>
     <div className="settings-layout">
       <div>
-        <section className="settings-group"><h2>Apprentissage</h2><label className="level-setting"><span className="settings-icon">Aa</span><div><strong>Niveau de conversation</strong><small>{levelDescriptions[profile.estimatedLevel ?? "A1"]} · difficulté et modèle adaptés</small></div><select value={profile.estimatedLevel ?? "A1"} onChange={(event) => onLevelChange(event.target.value as CEFRLevel)} aria-label="Niveau de conversation">{CEFR_LEVELS.map((level) => <option key={level} value={level}>{level}</option>)}</select></label></section>
+        <section className="settings-group"><h2>Apprentissage</h2><label className="level-setting"><span className="settings-icon">Aa</span><div><strong>Niveau du parcours</strong><small>{levelDescriptions[currentLevel]} · contenu, difficulté et modèle adaptés</small></div><select value={currentLevel} disabled={planningPlan} onChange={(event) => onLevelChange(event.target.value as CEFRLevel)} aria-label="Niveau du parcours">{CEFR_LEVELS.map((level) => <option key={level} value={level}>{level}</option>)}</select></label><button className="settings-row" type="button" onClick={onReplan} disabled={planningPlan}><span className="settings-icon">✦</span><div><strong>{planningPlan ? "Composition en cours…" : "Recomposer mon parcours"}</strong><small>{profile.learningPlan?.focus ?? "Créer un itinéraire lié à tes intérêts"}</small></div><i aria-hidden="true">↻</i></button></section>
         <section className="settings-group"><h2>Application</h2><button className="settings-row" type="button" onClick={onInstall} disabled={!pwa.canInstall || pwa.isInstalled}><span className="settings-icon">↓</span><div><strong>Installer Bibata</strong><small>{installDescription}</small></div><i aria-hidden="true">{pwa.isInstalled ? "✓" : "›"}</i></button><div className="settings-static-row"><span className={`settings-icon ${pwa.isOnline ? "online" : "offline"}`}>●</span><div><strong>{pwa.isOnline ? "Connexion disponible" : "Mode hors ligne"}</strong><small>{pwa.offlineReady ? "L’interface reste accessible hors ligne" : "Une connexion est nécessaire pour discuter avec Bibata"}</small></div><i aria-hidden="true">{pwa.isOnline ? "✓" : "—"}</i></div></section>
       </div>
       <div>
@@ -197,6 +288,11 @@ function ExerciseCard({ exercise, onAnswer }: { exercise: Exercise; onAnswer: (a
   const choices = exercise.payload.choices ?? exercise.payload.tokens ?? [];
   const answer = exercise.type === "sentence_builder" ? tokens.join(" ") : selected;
   const correct = normalizeAnswer(answer) === normalizeAnswer(exercise.payload.answer);
+  const successCopy = exercise.type === "sentence_builder"
+    ? "La phrase tient bien ensemble. Garde surtout son rythme en tête."
+    : exercise.type === "fill_blank"
+      ? "Bien vu : ce choix complète naturellement la phrase."
+      : "Bien vu : tu as reconnu la bonne formulation.";
   const select = (choice: string) => {
     if (checked) return;
     if (exercise.type === "sentence_builder") setTokens((current) => current.includes(choice) ? current.filter((item) => item !== choice) : [...current, choice]);
@@ -205,7 +301,7 @@ function ExerciseCard({ exercise, onAnswer }: { exercise: Exercise; onAnswer: (a
   return <section className="exercise-body"><p className="eyebrow">À toi de jouer</p><h1>{exercise.prompt}</h1>
     {exercise.type === "sentence_builder" && <div className="sentence-slot" aria-live="polite">{tokens.length ? tokens.join(" ") : <span>Touche les mots dans l’ordre</span>}</div>}
     <div className={exercise.type === "sentence_builder" ? "token-grid" : "choice-list"}>{choices.map((choice, index) => { const active = exercise.type === "sentence_builder" ? tokens.includes(choice) : selected === choice; const revealClass = checked && normalizeAnswer(choice) === normalizeAnswer(exercise.payload.answer) ? "correct" : checked && active && !correct ? "incorrect" : ""; return <button type="button" className={`${active ? "selected" : ""} ${revealClass}`} key={choice} onClick={() => select(choice)} disabled={checked} aria-pressed={active}><span>{exercise.type === "sentence_builder" ? choice : String.fromCharCode(65 + index)}</span>{exercise.type !== "sentence_builder" && <strong>{choice}</strong>}{checked && normalizeAnswer(choice) === normalizeAnswer(exercise.payload.answer) && <i aria-hidden="true">✓</i>}</button>; })}</div>
-    {checked && <div className={`answer-feedback ${correct ? "good" : "gentle"}`} role="status"><strong>{correct ? "Très bien !" : "Presque."}</strong><p>{correct ? "Tu peux continuer." : <>La bonne réponse est <b>{exercise.payload.answer}</b>.</>}</p></div>}
+    {checked && <BibataCoach tone={correct ? "success" : "gentle"} title={correct ? "Bien joué" : "On ajuste"} compact announce>{correct ? successCopy : <>La bonne réponse est <b>{exercise.payload.answer}</b>. Relis-la une fois avant de continuer : c’est elle qui compte, pas l’erreur.</>}</BibataCoach>}
     <div className="sticky-action"><button className="primary-button" type="button" disabled={!answer} onClick={() => checked ? onAnswer(answer, correct) : setChecked(true)}>{checked ? "Continuer" : "Vérifier"}<span>→</span></button></div>
   </section>;
 }
@@ -217,6 +313,7 @@ function getConversationErrorMessage(error: unknown, isOnline: boolean) {
     case "MAMMOUTH_NOT_CONFIGURED":
     case "MAMMOUTH_AUTH_FAILED": return "Le service de conversation n’est pas correctement configuré.";
     case "MAMMOUTH_RATE_LIMITED": return "Le service reçoit trop de demandes. Patiente un instant, puis réessaie.";
+    case "AI_BUDGET_REACHED": return "La limite de conversations a été atteinte pour le moment. Reviens dans quelques minutes.";
     case "MAMMOUTH_TIMEOUT": return "La réponse prend trop de temps. Réessaie dans un instant.";
     case "MAMMOUTH_INVALID_RESPONSE":
     case "INVALID_API_RESPONSE": return "Le service a renvoyé une réponse inutilisable. Tu peux réessayer.";
@@ -224,8 +321,24 @@ function getConversationErrorMessage(error: unknown, isOnline: boolean) {
   }
 }
 
+function getPlanErrorMessage(error: unknown, isOnline: boolean) {
+  if (!isOnline) return "Reconnecte-toi pour que Bibata puisse composer un parcours personnel.";
+  if (!(error instanceof AIProviderError)) return "Le service de planification est momentanément indisponible. Tu peux réessayer.";
+  switch (error.code) {
+    case "MAMMOUTH_NOT_CONFIGURED":
+    case "MAMMOUTH_AUTH_FAILED": return "Le service de planification n’est pas correctement configuré.";
+    case "MAMMOUTH_RATE_LIMITED": return "Le service reçoit beaucoup de demandes. Patiente un instant, puis réessaie.";
+    case "AI_BUDGET_REACHED": return "La limite de préparation a été atteinte pour le moment. Réessaie dans quelques minutes.";
+    case "MAMMOUTH_TIMEOUT": return "La préparation prend trop de temps. Réessaie dans un instant.";
+    case "MAMMOUTH_INVALID_PLAN":
+    case "MAMMOUTH_INVALID_RESPONSE":
+    case "INVALID_API_RESPONSE": return "Le parcours reçu n’était pas utilisable. Bibata peut en recomposer un nouveau.";
+    default: return "Le service de planification est momentanément indisponible. Tu peux réessayer.";
+  }
+}
+
 function ConversationStage({ mission, level, isOnline, onComplete }: { mission: Mission; level: CEFRLevel; isOnline: boolean; onComplete: () => void }) {
-  const opening = mission.conversation.id === "intro-party" ? `Hi! I'm ${mission.conversation.characterName}. What's your name?` : "Hey! What does a normal day look like for you?";
+  const opening = mission.conversation.opening ?? `Hi! I'm ${mission.conversation.characterName}.`;
   const [messages, setMessages] = useState<ConversationMessage[]>([{ id: "opening", role: "character", text: opening }]);
   const [draft, setDraft] = useState("");
   const [waiting, setWaiting] = useState(false);
@@ -266,13 +379,14 @@ function ConversationStage({ mission, level, isOnline, onComplete }: { mission: 
     await requestReply(next);
   };
 
-  return <section className="conversation-stage"><div className="scenario-card"><span className="avatar">{mission.conversation.characterName.charAt(0)}</span><div><small>Situation réelle · Niveau {level}</small><h1>{mission.conversation.title}</h1><p>{mission.conversation.setting}</p></div></div><div className="objective-pills">{mission.conversation.objectives.map((item, index) => <span key={item} className={index < completedTurns ? "done" : ""}>{index < completedTurns ? "✓" : index + 1} {item}</span>)}</div>
-    <div className="chat-window" aria-live="polite">{messages.map((message) => <div className={`message ${message.role}`} key={message.id}>{message.role === "character" && <small>{mission.conversation.characterName}</small>}<p>{message.text}</p></div>)}{waiting && <div className="typing" role="status"><i /><i /><i /><span>{mission.conversation.characterName} prépare sa réponse…</span></div>}<div ref={chatEndRef} /></div>
+  return <section className="conversation-stage"><div className="scenario-card"><span className="scenario-avatar" aria-hidden="true"><Image src={mascotAvatar} alt="" sizes="47px" /></span><div><small>Situation réelle · Niveau {level}</small><h1>{mission.conversation.title}</h1><p>{mission.conversation.setting}</p></div></div><div className="objective-pills">{mission.conversation.objectives.map((item, index) => <span key={item} className={index < completedTurns ? "done" : ""}>{index < completedTurns ? "✓" : index + 1} {item}</span>)}</div>
+    <div className="chat-window" aria-live="polite">{messages.map((message) => <div className={`message ${message.role}`} key={message.id}>{message.role === "character" && <small>{mission.conversation.characterName}</small>}<p>{message.text}</p></div>)}{waiting && <div className="typing" role="status"><span className="typing-avatar" aria-hidden="true">{mission.conversation.characterName.charAt(0)}</span><span className="typing-copy"><strong>{mission.conversation.characterName} réfléchit</strong><small>La conversation continue</small></span><span className="typing-dots" aria-hidden="true"><i /><i /><i /></span></div>}<div ref={chatEndRef} /></div>
+    {completedTurns >= 3 && <BibataCoach tone="success" title="Échange terminé" compact announce>Tu as tenu la conversation jusqu’au bout. Je t’ai préparé un bilan clair.</BibataCoach>}
     {aiError ? <div className="conversation-error" role="alert"><div><strong>Impossible de poursuivre la conversation</strong><p>{aiError}</p></div><button type="button" onClick={() => void requestReply(messages)} disabled={waiting || !isOnline}>Réessayer</button></div> : completedTurns >= 3 ? <div className="sticky-action"><button className="primary-button" type="button" onClick={onComplete}>Voir mon bilan <span>→</span></button></div> : !waiting ? <><div className="reply-suggestions" aria-label="Réponses suggérées">{mission.conversation.suggestedReplies.slice(completedTurns, completedTurns + 2).map((reply) => <button type="button" key={reply} onClick={() => void send(reply)}>{reply}</button>)}</div><form className="chat-input" onSubmit={(event) => { event.preventDefault(); void send(draft); }}><input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Écris ta réponse…" aria-label="Ta réponse" autoComplete="off" /><button type="submit" disabled={!draft.trim()} aria-label="Envoyer">↑</button></form></> : null}
   </section>;
 }
 
-function MissionFlow({ mission, level, isOnline, onExit, onFinish }: { mission: Mission; level: CEFRLevel; isOnline: boolean; onExit: () => void; onFinish: (attempts: ExerciseAttempt[], score: MissionScore) => void }) {
+function MissionFlow({ mission, level, isOnline, onEngaged, onExit, onFinish }: { mission: Mission; level: CEFRLevel; isOnline: boolean; onEngaged: () => void; onExit: () => void; onFinish: (attempts: ExerciseAttempt[], score: MissionScore) => void }) {
   const [stage, setStage] = useState<MissionStage>("intro");
   const [conceptIndex, setConceptIndex] = useState(0);
   const [exerciseIndex, setExerciseIndex] = useState(0);
@@ -283,6 +397,7 @@ function MissionFlow({ mission, level, isOnline, onExit, onFinish }: { mission: 
   const concept = missionConcepts[conceptIndex];
   const progressMap: Record<MissionStage, number> = { intro: 4, discover: 20 + conceptIndex * 6, context: 48, exercise: 55 + exerciseIndex * 10, conversation: 88, result: 100 };
   const requestExit = () => { if (stage === "intro") onExit(); else setExitConfirm(true); };
+  const beginMission = () => { onEngaged(); setStage("discover"); };
   const advanceConcept = () => { if (conceptIndex < missionConcepts.length - 1) setConceptIndex((index) => index + 1); else { setConceptIndex(0); setStage("context"); } };
   const recordAnswer = (answer: string, correct: boolean) => {
     const exercise = mission.exercises[exerciseIndex];
@@ -302,12 +417,12 @@ function MissionFlow({ mission, level, isOnline, onExit, onFinish }: { mission: 
   };
 
   let screen: ReactNode;
-  if (stage === "intro") screen = <main className="mission-shell intro-screen page-enter"><MissionHeader progress={progressMap[stage]} onClose={requestExit} /><section className="mission-intro"><div className="world-orbit"><span>✦</span><i /><i /></div><p className="eyebrow">Mission {mission.order} · {mission.eyebrow}</p><h1>{mission.title}</h1><p>{mission.description}</p><div className="mission-meta"><span>◷ {mission.durationMinutes} min</span><span>＋ {mission.conceptIds.length} concepts</span><span>Niveau {level}</span></div></section><div className="sticky-action"><button className="primary-button" type="button" onClick={() => setStage("discover")}>Commencer <span>→</span></button></div></main>;
-  else if (stage === "discover" && concept) screen = <main className="mission-shell page-enter"><MissionHeader progress={progressMap[stage]} onClose={requestExit} /><section className="concept-stage"><p className="eyebrow">Nouveau concept · {conceptIndex + 1} sur {missionConcepts.length}</p><div className="concept-visual"><span>{concept.type === "word" ? "Aa" : "…"}</span></div><h1>{concept.value}</h1><p className="translation">{concept.translation}</p><span className="type-pill">{concept.type === "word" ? "Mot" : concept.type === "expression" ? "Expression" : "Construction"}</span></section><div className="sticky-action"><button className="primary-button" type="button" onClick={advanceConcept}>J’ai compris <span>→</span></button></div></main>;
-  else if (stage === "context" && concept) screen = <main className="mission-shell page-enter"><MissionHeader progress={progressMap[stage]} onClose={requestExit} /><section className="context-stage"><p className="eyebrow">En contexte</p><div className="quote-mark">“</div><blockquote>{concept.examples[0].text}</blockquote><p>{concept.examples[0].translation}</p><div className="context-note"><span>✦</span><div><strong>À retenir</strong><p>Écoute le rythme de la phrase, pas seulement chaque mot.</p></div></div></section><div className="sticky-action"><button className="primary-button" type="button" onClick={() => setStage("exercise")}>À moi de jouer <span>→</span></button></div></main>;
+  if (stage === "intro") screen = <main className="mission-shell intro-screen page-enter"><MissionHeader progress={progressMap[stage]} onClose={requestExit} /><section className="mission-intro"><div className="mission-guide-portrait" aria-hidden="true"><span>✦</span><Image src={mascotAvatar} alt="" sizes="150px" /><i /><i /></div><p className="eyebrow">Mission {mission.order} · {mission.eyebrow}</p><h1>{mission.title}</h1><p>{mission.description}</p><div className="mission-meta"><span>◷ {mission.durationMinutes} min</span><span>＋ {mission.conceptIds.length} concepts</span><span>Niveau {level}</span></div></section><div className="sticky-action"><button className="primary-button" type="button" onClick={beginMission}>Commencer <span>→</span></button></div></main>;
+  else if (stage === "discover" && concept) screen = <main className="mission-shell page-enter"><MissionHeader progress={progressMap[stage]} onClose={requestExit} /><section className="concept-stage"><p className="eyebrow">Nouveau concept · {conceptIndex + 1} sur {missionConcepts.length}</p><div className="concept-visual"><span>{concept.type === "word" ? "Aa" : "…"}</span></div><h1>{concept.value}</h1><p className="translation">{concept.translation}</p><span className="type-pill">{concept.type === "word" ? "Mot" : concept.type === "expression" ? "Expression" : "Construction"}</span>{conceptIndex === 0 && <BibataCoach compact>{concept.type === "word" ? "Lis-le une fois à voix haute. Le son aide la mémoire à l’accrocher." : "Cherche d’abord l’intention de l’expression, pas une traduction mot à mot."}</BibataCoach>}</section><div className="sticky-action"><button className="primary-button" type="button" onClick={advanceConcept}>J’ai compris <span>→</span></button></div></main>;
+  else if (stage === "context" && concept) screen = <main className="mission-shell page-enter"><MissionHeader progress={progressMap[stage]} onClose={requestExit} /><section className="context-stage"><p className="eyebrow">En contexte</p><div className="quote-mark">“</div><blockquote>{concept.examples[0].text}</blockquote><p>{concept.examples[0].translation}</p><BibataCoach title="Le regard de Bibata" compact>{levelGuidance[level]}</BibataCoach></section><div className="sticky-action"><button className="primary-button" type="button" onClick={() => setStage("exercise")}>À moi de jouer <span>→</span></button></div></main>;
   else if (stage === "exercise") screen = <main className="mission-shell"><MissionHeader progress={progressMap[stage]} onClose={requestExit} /><ExerciseCard key={mission.exercises[exerciseIndex].id} exercise={mission.exercises[exerciseIndex]} onAnswer={recordAnswer} /></main>;
   else if (stage === "conversation") screen = <main className="mission-shell"><MissionHeader progress={progressMap[stage]} onClose={requestExit} /><ConversationStage mission={mission} level={level} isOnline={isOnline} onComplete={completeConversation} /></main>;
-  else screen = <main className="mission-shell result-screen page-enter"><section className="result-hero"><div className="celebration-mark">✓<i /><i /><i /></div><p className="eyebrow">Mission {mission.order} terminée</p><h1>Beau travail !</h1><p>Tu as reconnu, compris et utilisé tes nouveaux mots dans une vraie situation.</p></section><div className="score-card"><div className="score-total"><span><strong>{score.total}</strong>/100</span><p>Score global</p></div>{(["concepts", "comprehension", "usage"] as const).map((item) => <div className="score-row" key={item}><span>{item === "concepts" ? "Concepts" : item === "comprehension" ? "Compréhension" : "Utilisation"}</span><ProgressLine value={score[item]} label={`Score ${item}`} /><strong>{score[item]}%</strong></div>)}</div><div className="learned-banner"><span>＋{mission.conceptIds.length}</span><div><strong>concepts rencontrés</strong><p>Ils reviendront naturellement dans les prochaines missions.</p></div></div><div className="sticky-action"><button className="primary-button" type="button" onClick={() => onFinish(attempts, score)}>Revenir à l’accueil <span>→</span></button></div></main>;
+  else screen = <main className="mission-shell result-screen page-enter"><section className="result-hero"><div className="result-mascot" aria-hidden="true"><Image src={mascot} alt="" sizes="150px" /><span>✓</span><i /><i /></div><p className="eyebrow">Mission {mission.order} terminée</p><h1>Beau travail !</h1><p>Tu as reconnu, compris et utilisé tes nouveaux mots dans une vraie situation.</p></section><div className="score-card"><div className="score-total"><span><strong>{score.total}</strong>/100</span><p>Score global</p></div>{(["concepts", "comprehension", "usage"] as const).map((item) => <div className="score-row" key={item}><span>{item === "concepts" ? "Concepts" : item === "comprehension" ? "Compréhension" : "Utilisation"}</span><ProgressLine value={score[item]} label={`Score ${item}`} /><strong>{score[item]}%</strong></div>)}</div><div className="learned-banner"><span>＋{mission.conceptIds.length}</span><div><strong>concepts rencontrés</strong><p>Ils reviendront naturellement dans les prochaines missions.</p></div></div><div className="sticky-action"><button className="primary-button" type="button" onClick={() => onFinish(attempts, score)}>Revenir à l’accueil <span>→</span></button></div></main>;
 
   return <>{screen}{exitConfirm && <ConfirmDialog title="Quitter cette mission ?" description="Ta progression dans cette mission ne sera pas enregistrée." confirmLabel="Quitter" onCancel={() => setExitConfirm(false)} onConfirm={onExit} />}</>;
 }
@@ -321,10 +436,22 @@ export default function BibataApp() {
   const [activeMission, setActiveMission] = useState<Mission>(missions[0]);
   const [notice, setNotice] = useState("");
   const [resetConfirm, setResetConfirm] = useState(false);
+  const [planning, setPlanning] = useState<PlanningState>(null);
+  const [showPlanningScreen, setShowPlanningScreen] = useState(false);
+  const [onboardingPlanError, setOnboardingPlanError] = useState("");
+  const [planIssue, setPlanIssue] = useState("");
   const noticeTimer = useRef<number | undefined>(undefined);
+  const migrationAttempts = useRef(new Set<string>());
+  const nextMissionRequest = useRef<Promise<Mission | undefined> | null>(null);
+  const onboardingSeed = useRef("");
   const pwa = usePWA();
+  const planningPlan = planning !== null;
   const profile = state.profiles.find((item) => item.language === (state.activeLanguage ?? "en"));
-  const learnedCount = useMemo(() => Object.values(state.mastery).filter((item) => item.exposureCount > 0).length, [state.mastery]);
+  const currentLevel = profile?.estimatedLevel ?? selectedLevel;
+  const levelMissions = useMemo(() => getMissionsForProfile(profile, currentLevel), [currentLevel, profile]);
+  const levelConceptIds = useMemo(() => new Set(levelMissions.flatMap((mission) => mission.conceptIds)), [levelMissions]);
+  const learnedCount = useMemo(() => Object.values(state.mastery).filter((item) => item.exposureCount > 0 && levelConceptIds.has(item.conceptId)).length, [levelConceptIds, state.mastery]);
+  const effectivePlanIssue = planIssue || (!loading && profile && !profile.learningPlan && !pwa.isOnline ? getPlanErrorMessage(undefined, false) : "");
 
   const notify = (message: string) => {
     window.clearTimeout(noticeTimer.current);
@@ -342,37 +469,184 @@ export default function BibataApp() {
   }, []);
 
   useEffect(() => {
+    const timer = window.setTimeout(
+      () => setShowPlanningScreen(planning?.mode === "foreground"),
+      planning?.mode === "foreground" ? 280 : 0,
+    );
+    return () => window.clearTimeout(timer);
+  }, [planning]);
+
+  useEffect(() => {
+    if (loading || !profile || profile.learningPlan || !pwa.isOnline) return;
+    const attemptKey = `${profile.id}-${profile.estimatedLevel ?? "A1"}`;
+    if (migrationAttempts.current.has(attemptKey)) return;
+    migrationAttempts.current.add(attemptKey);
+    setPlanning({ mode: "foreground", task: "migration" });
+    setPlanIssue("");
+    const migrate = async () => {
+      try {
+        const level = profile.estimatedLevel ?? "A1";
+        const migrationSeed = `migration-${profile.id}-${level}`.replace(/[^a-zA-Z0-9-]/g, "-").slice(0, 80);
+        const plan = await aiProvider.generateLearningPlan(level, profile.interests, migrationSeed);
+        const personalizedMissions = buildMissionsFromPlan(plan);
+        const saved = await storageRepository.getState();
+        const savedProfile = saved.profiles.find((item) => item.id === profile.id);
+        if (!savedProfile || savedProfile.learningPlan) return;
+        const nextProfile = { ...savedProfile, learningPlan: plan, currentMissionId: personalizedMissions[0].id, updatedAt: Date.now() };
+        const nextState = { ...saved, profiles: saved.profiles.map((item) => item.id === profile.id ? nextProfile : item) };
+        setState(nextState);
+        await storageRepository.saveState(nextState);
+      } catch (error) {
+        setPlanIssue(getPlanErrorMessage(error, pwa.isOnline));
+      } finally {
+        setPlanning(null);
+      }
+    };
+    void migrate();
+  }, [loading, profile, pwa.isOnline]);
+
+  useEffect(() => {
     window.scrollTo({ top: 0, behavior: "instant" });
   }, [view]);
 
   const chooseLanguage = (code: string) => { setSelectedLanguage(code); setView("onboarding-level"); };
   const finishOnboarding = async (interests: string[]) => {
+    if (!pwa.isOnline) {
+      setOnboardingPlanError(getPlanErrorMessage(undefined, false));
+      return;
+    }
+    setPlanning({ mode: "foreground", task: "first-plan" });
+    setOnboardingPlanError("");
     const language = languages.find((item) => item.code === selectedLanguage) ?? languages[0];
-    const now = Date.now();
-    const newProfile: LearningProfile = { id: `local-${selectedLanguage}`, language: selectedLanguage, languageName: language.name, languageFlag: language.flag, estimatedLevel: selectedLevel, levelConfidence: 1, interests, ability: initialAbility, currentMissionId: missions[0].id, completedMissionIds: [], createdAt: now, updatedAt: now };
-    const nextState = { ...state, profiles: [...state.profiles.filter((item) => item.language !== selectedLanguage), newProfile], activeLanguage: selectedLanguage };
-    setState(nextState);
-    await storageRepository.saveState(nextState);
-    setActiveMission(missions[0]);
+    try {
+      if (!onboardingSeed.current) onboardingSeed.current = crypto.randomUUID();
+      const plan = await aiProvider.generateLearningPlan(selectedLevel, interests, onboardingSeed.current);
+      const onboardingMissions = buildMissionsFromPlan(plan);
+      const now = Date.now();
+      const newProfile: LearningProfile = { id: `local-${selectedLanguage}`, language: selectedLanguage, languageName: language.name, languageFlag: language.flag, estimatedLevel: selectedLevel, levelConfidence: 1, interests, ability: initialAbility, currentMissionId: onboardingMissions[0].id, completedMissionIds: [], learningPlan: plan, createdAt: now, updatedAt: now };
+      const nextState = { ...state, profiles: [...state.profiles.filter((item) => item.language !== selectedLanguage), newProfile], activeLanguage: selectedLanguage };
+      setState(nextState);
+      await storageRepository.saveState(nextState);
+      setActiveMission(onboardingMissions[0]);
+      setPlanIssue("");
+      setView("mission");
+    } catch (error) {
+      setOnboardingPlanError(getPlanErrorMessage(error, pwa.isOnline));
+    } finally {
+      setPlanning(null);
+    }
+  };
+  function extendPersonalPlan(profileSnapshot: LearningProfile, mode: "foreground" | "background" = "background"): Promise<Mission | undefined> {
+    if (nextMissionRequest.current) return nextMissionRequest.current;
+    if (!profileSnapshot.learningPlan) return Promise.resolve(undefined);
+    if (!pwa.isOnline) {
+      setPlanIssue(getPlanErrorMessage(undefined, false));
+      return Promise.resolve(undefined);
+    }
+    const sourcePlan = profileSnapshot.learningPlan;
+    const request: Promise<Mission | undefined> = (async () => {
+      setPlanning({ mode, task: "next-mission" });
+      setPlanIssue("");
+      try {
+        const generated = await aiProvider.generateNextMission(sourcePlan, profileSnapshot.interests);
+        const saved = await storageRepository.getState();
+        const latestProfile = saved.profiles.find((item) => item.id === profileSnapshot.id);
+        const latestPlan = latestProfile?.learningPlan;
+        if (!latestProfile || !latestPlan || latestPlan.id !== sourcePlan.id) return undefined;
+        const existing = latestPlan.missions.find((mission) => mission.id === generated.id || mission.order === generated.order);
+        const nextPlan = existing
+          ? latestPlan
+          : { ...latestPlan, missions: [...latestPlan.missions, generated].sort((left, right) => left.order - right.order) };
+        const runtimeMissions = buildMissionsFromPlan(nextPlan);
+        const runtimeMission = runtimeMissions.find((mission) => mission.id === (existing?.id ?? generated.id));
+        if (!runtimeMission || existing) return runtimeMission;
+        const currentMissionStillAvailable = runtimeMissions.find((mission) => mission.id === latestProfile.currentMissionId && !latestProfile.completedMissionIds.includes(mission.id));
+        const nextProfile: LearningProfile = {
+          ...latestProfile,
+          learningPlan: nextPlan,
+          currentMissionId: currentMissionStillAvailable?.id ?? runtimeMission.id,
+          updatedAt: Date.now(),
+        };
+        const nextState = { ...saved, profiles: saved.profiles.map((item) => item.id === latestProfile.id ? nextProfile : item) };
+        setState(nextState);
+        await storageRepository.saveState(nextState);
+        return runtimeMission;
+      } catch (error) {
+        setPlanIssue(getPlanErrorMessage(error, pwa.isOnline));
+        return undefined;
+      } finally {
+        nextMissionRequest.current = null;
+        setPlanning(null);
+      }
+    })();
+    nextMissionRequest.current = request;
+    return request;
+  }
+  const startMission = async () => {
+    if (!profile) return;
+    const unfinished = levelMissions.filter((mission) => !profile.completedMissionIds.includes(mission.id));
+    let nextMission: Mission | undefined = unfinished[0];
+    if (!nextMission) nextMission = await extendPersonalPlan(profile, "foreground");
+    if (!nextMission) return;
+    setActiveMission(nextMission);
     setView("mission");
   };
-  const startMission = () => { if (!profile) return; setActiveMission(getNextMission(profile, missions) ?? missions[0]); setView("mission"); };
   const changeLevel = async (level: CEFRLevel) => {
     if (!profile) return;
-    const nextProfile = { ...profile, estimatedLevel: level, levelConfidence: 1, updatedAt: Date.now() };
-    const nextState = { ...state, profiles: state.profiles.map((item) => item.id === profile.id ? nextProfile : item) };
-    setState(nextState);
-    await storageRepository.saveState(nextState);
-    notify(`Niveau ${level} appliqué`);
+    if (!pwa.isOnline) { setPlanIssue(getPlanErrorMessage(undefined, false)); notify("Connexion nécessaire pour changer de parcours"); return; }
+    setPlanning({ mode: "foreground", task: "recompose" });
+    setPlanIssue("");
+    try {
+      const plan = await aiProvider.generateLearningPlan(level, profile.interests, crypto.randomUUID());
+      const nextLevelMissions = buildMissionsFromPlan(plan);
+      const nextMission = nextLevelMissions[0];
+      const nextProfile = { ...profile, estimatedLevel: level, levelConfidence: 1, learningPlan: plan, currentMissionId: nextMission.id, updatedAt: Date.now() };
+      const nextState = { ...state, profiles: state.profiles.map((item) => item.id === profile.id ? nextProfile : item) };
+      setState(nextState);
+      setActiveMission(nextMission);
+      await storageRepository.saveState(nextState);
+      notify(`Niveau ${level} appliqué · parcours personnel prêt`);
+    } catch (error) {
+      const message = getPlanErrorMessage(error, pwa.isOnline);
+      setPlanIssue(message);
+      notify("Le niveau n’a pas été modifié");
+    } finally {
+      setPlanning(null);
+    }
+  };
+  const recomposePlan = async () => {
+    if (!profile || planningPlan) return;
+    if (!pwa.isOnline) { setPlanIssue(getPlanErrorMessage(undefined, false)); return; }
+    setPlanning({ mode: "foreground", task: "recompose" });
+    setPlanIssue("");
+    try {
+      const level = profile.estimatedLevel ?? "A1";
+      const plan = await aiProvider.generateLearningPlan(level, profile.interests, crypto.randomUUID());
+      const personalizedMissions = buildMissionsFromPlan(plan);
+      const nextProfile = { ...profile, learningPlan: plan, currentMissionId: personalizedMissions[0].id, updatedAt: Date.now() };
+      const nextState = { ...state, profiles: state.profiles.map((item) => item.id === profile.id ? nextProfile : item) };
+      setState(nextState);
+      setActiveMission(personalizedMissions[0]);
+      await storageRepository.saveState(nextState);
+      notify("Un nouveau parcours personnel est prêt");
+    } catch (error) {
+      setPlanIssue(getPlanErrorMessage(error, pwa.isOnline));
+    } finally {
+      setPlanning(null);
+    }
   };
   const finishMission = async (attempts: ExerciseAttempt[], score: MissionScore) => {
     if (!profile) return;
-    const nextMastery = { ...state.mastery };
+    const saved = await storageRepository.getState();
+    const latestProfile = saved.profiles.find((item) => item.id === profile.id) ?? profile;
+    const nextMastery = { ...saved.mastery };
     for (const attempt of attempts) for (const conceptId of attempt.conceptIds) nextMastery[conceptId] = updateConceptMastery(nextMastery[conceptId], { ...attempt, conceptIds: [conceptId] });
     for (const conceptId of activeMission.conceptIds) if (!nextMastery[conceptId]) nextMastery[conceptId] = { ...createEmptyMastery(conceptId), exposureCount: 1, recognition: 0.08, masteryScore: 0.02, confidence: 0.15, lastSeenAt: Date.now() };
-    const completedMissionIds = [...new Set([...profile.completedMissionIds, activeMission.id])];
-    const nextProfile: LearningProfile = { ...profile, completedMissionIds, currentMissionId: missions.find((mission) => !completedMissionIds.includes(mission.id))?.id ?? missions.at(-1)?.id, updatedAt: Date.now() };
-    const nextState: PersistedState = { ...state, mastery: nextMastery, profiles: state.profiles.map((item) => item.id === profile.id ? nextProfile : item), missionProgress: { ...state.missionProgress, [activeMission.id]: { missionId: activeMission.id, status: "completed", score: score.total, completedAt: Date.now() } } };
+    const completedMissionIds = [...new Set([...latestProfile.completedMissionIds, activeMission.id])];
+    const currentLevelMissions = getMissionsForProfile(latestProfile, latestProfile.estimatedLevel ?? "A1");
+    const remainingMissions = currentLevelMissions.filter((mission) => !completedMissionIds.includes(mission.id));
+    const nextProfile: LearningProfile = { ...latestProfile, completedMissionIds, currentMissionId: remainingMissions[0]?.id, updatedAt: Date.now() };
+    const nextState: PersistedState = { ...saved, mastery: nextMastery, profiles: saved.profiles.map((item) => item.id === latestProfile.id ? nextProfile : item), missionProgress: { ...saved.missionProgress, [activeMission.id]: { missionId: activeMission.id, status: "completed", score: score.total, completedAt: Date.now() } } };
     setState(nextState);
     await storageRepository.saveState(nextState);
     setView("home");
@@ -383,6 +657,9 @@ export default function BibataApp() {
     setState(structuredClone(emptyState));
     setSelectedLanguage("en");
     setSelectedLevel("A1");
+    setOnboardingPlanError("");
+    setPlanIssue("");
+    onboardingSeed.current = "";
     setResetConfirm(false);
     setView("onboarding-language");
   };
@@ -399,15 +676,16 @@ export default function BibataApp() {
   const installApp = async () => { if (await pwa.install()) notify("Bibata a été ajoutée à ton appareil"); };
 
   let content: ReactNode;
-  if (loading) content = <main className="loading-screen"><Logo /><span className="loading-dot" /><p>Préparation de ton parcours…</p></main>;
+  if (loading) content = <main className="loading-screen"><Logo /><span className="loading-dot" /><p>Ouverture de Bibata…</p></main>;
+  else if (planning?.mode === "foreground" && showPlanningScreen) content = <AIWaitingScreen task={planning.task} level={currentLevel} />;
   else if (view === "onboarding-language") content = <OnboardingLanguage onChoose={chooseLanguage} />;
   else if (view === "onboarding-level") content = <OnboardingLevel selected={selectedLevel} onBack={() => setView("onboarding-language")} onSelect={setSelectedLevel} onContinue={() => setView("onboarding-interests")} />;
-  else if (view === "onboarding-interests") content = <OnboardingInterests onBack={() => setView("onboarding-level")} onContinue={(interests) => void finishOnboarding(interests)} />;
-  else if (view === "mission") content = <MissionFlow key={`${activeMission.id}-${profile?.estimatedLevel ?? selectedLevel}`} mission={activeMission} level={profile?.estimatedLevel ?? selectedLevel} isOnline={pwa.isOnline} onExit={() => setView(profile ? "home" : "onboarding-interests")} onFinish={(attempts, score) => void finishMission(attempts, score)} />;
+  else if (view === "onboarding-interests") content = <OnboardingInterests loading={planningPlan} error={onboardingPlanError} onBack={() => setView("onboarding-level")} onContinue={(interests) => void finishOnboarding(interests)} />;
+  else if (view === "mission") content = <MissionFlow key={`${activeMission.id}-${profile?.estimatedLevel ?? selectedLevel}`} mission={activeMission} level={profile?.estimatedLevel ?? selectedLevel} isOnline={pwa.isOnline} onEngaged={() => { if (profile?.learningPlan) void extendPersonalPlan(profile); }} onExit={() => setView(profile ? "home" : "onboarding-interests")} onFinish={(attempts, score) => void finishMission(attempts, score)} />;
   else if (!profile) content = <OnboardingLanguage onChoose={chooseLanguage} />;
-  else if (view === "progress") content = <ProgressScreen profile={profile} masteryCount={learnedCount} onContinue={startMission} onNavigate={setView} />;
-  else if (view === "settings") content = <SettingsScreen key={`${pwa.isOnline}-${pwa.offlineReady}-${pwa.canInstall}-${pwa.isInstalled}`} profile={profile} pwa={pwa} onInstall={() => void installApp()} onNavigate={setView} onNotify={notify} onResetRequest={() => setResetConfirm(true)} onImport={(value) => void importData(value)} onLevelChange={(level) => void changeLevel(level)} />;
-  else content = <HomeScreen profile={profile} learnedCount={learnedCount} canInstall={pwa.canInstall} offlineReady={pwa.offlineReady} onContinue={startMission} onInstall={() => void installApp()} onNavigate={setView} />;
+  else if (view === "progress") content = <ProgressScreen profile={profile} availableMissions={levelMissions} masteryCount={learnedCount} onContinue={() => void startMission()} onNavigate={setView} />;
+  else if (view === "settings") content = <SettingsScreen key={`${pwa.isOnline}-${pwa.offlineReady}-${pwa.canInstall}-${pwa.isInstalled}`} profile={profile} pwa={pwa} planningPlan={planningPlan} onInstall={() => void installApp()} onNavigate={setView} onNotify={notify} onResetRequest={() => setResetConfirm(true)} onImport={(value) => void importData(value)} onLevelChange={(level) => void changeLevel(level)} onReplan={() => void recomposePlan()} />;
+  else content = <HomeScreen profile={profile} availableMissions={levelMissions} learnedCount={learnedCount} canInstall={pwa.canInstall} offlineReady={pwa.offlineReady} planningPlan={planningPlan} planIssue={effectivePlanIssue} onContinue={() => void startMission()} onRetry={() => void recomposePlan()} onInstall={() => void installApp()} onNavigate={setView} />;
 
   return <>{!pwa.isOnline && <div className="network-banner" role="status"><span aria-hidden="true">○</span>Mode hors ligne · les conversations IA nécessitent une connexion</div>}{content}{notice && <Toast message={notice} />}{resetConfirm && <ConfirmDialog title="Tout recommencer ?" description="Tous les profils, missions et résultats enregistrés sur cet appareil seront effacés." confirmLabel="Tout effacer" onCancel={() => setResetConfirm(false)} onConfirm={() => void reset()} />}</>;
 }

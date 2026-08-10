@@ -53,6 +53,7 @@ export function usePWA() {
   const isInstalled = isStandalone || installedByPrompt;
 
   useEffect(() => {
+    let removeControllerListener: (() => void) | undefined;
     const beforeInstall = (event: Event) => {
       event.preventDefault();
       installPrompt.current = event as BeforeInstallPromptEvent;
@@ -67,16 +68,44 @@ export function usePWA() {
     window.addEventListener("beforeinstallprompt", beforeInstall);
     window.addEventListener("appinstalled", installed);
 
-    if ("serviceWorker" in navigator && process.env.NODE_ENV === "production") {
-      navigator.serviceWorker.register("/sw.js", { scope: "/" })
-        .then(() => navigator.serviceWorker.ready)
-        .then(() => setOfflineReady(true))
-        .catch(() => setOfflineReady(false));
+    if ("serviceWorker" in navigator) {
+      if (process.env.NODE_ENV === "production") {
+        const controlledAtStart = Boolean(navigator.serviceWorker.controller);
+        let refreshing = false;
+        const refreshOnUpdate = () => {
+          if (!controlledAtStart || refreshing) return;
+          refreshing = true;
+          window.location.reload();
+        };
+        navigator.serviceWorker.addEventListener("controllerchange", refreshOnUpdate);
+        removeControllerListener = () => navigator.serviceWorker.removeEventListener("controllerchange", refreshOnUpdate);
+        navigator.serviceWorker.register("/sw.js", { scope: "/", updateViaCache: "none" })
+          .then(async (registration) => {
+            await registration.update();
+            await navigator.serviceWorker.ready;
+            setOfflineReady(true);
+          })
+          .catch(() => setOfflineReady(false));
+      } else {
+        // A production worker previously installed on localhost must never cache
+        // development chunks: their URLs can stay stable while their code changes.
+        const controlledByOldWorker = Boolean(navigator.serviceWorker.controller);
+        void navigator.serviceWorker.getRegistrations()
+          .then((registrations) => Promise.all(registrations
+            .filter((registration) => registration.scope.startsWith(window.location.origin))
+            .map((registration) => registration.unregister())))
+          .then(() => caches.keys())
+          .then((keys) => Promise.all(keys.filter((key) => key.startsWith("bibata-shell-")).map((key) => caches.delete(key))))
+          .then(() => {
+            if (controlledByOldWorker) window.location.reload();
+          });
+      }
     }
 
     return () => {
       window.removeEventListener("beforeinstallprompt", beforeInstall);
       window.removeEventListener("appinstalled", installed);
+      removeControllerListener?.();
     };
   }, []);
 

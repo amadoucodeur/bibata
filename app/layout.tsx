@@ -8,14 +8,17 @@ export const metadata: Metadata = {
   formatDetection: { telephone: false },
   appleWebApp: { capable: true, statusBarStyle: "black-translucent", title: "Bibata" },
   icons: {
-    icon: [{ url: "/icon-192.png", sizes: "192x192", type: "image/png" }],
+    icon: [
+      { url: "/brand/bibata-logo-d.png", sizes: "347x484", type: "image/png" },
+      { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
+    ],
     apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
   },
 };
 
 export const viewport: Viewport = {
   colorScheme: "light",
-  themeColor: "#1d5548",
+  themeColor: "#4a3568",
   viewportFit: "cover",
 };
 

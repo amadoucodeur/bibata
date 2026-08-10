@@ -7,7 +7,8 @@ import {
   selectOldConceptsForReview,
   updateConceptMastery,
 } from "./learning-engine";
-import { missions } from "../data/curriculum";
+import { getMissionsForLevel, missions } from "../data/curriculum";
+import { getMissionsForProfile } from "./personalization";
 import type { ExerciseAttempt, LearningProfile } from "../types/learning";
 
 const profile: LearningProfile = {
@@ -70,5 +71,28 @@ describe("game and curriculum", () => {
   test("chooses the first unfinished mission", () => {
     expect(getNextMission(profile, missions)?.id).toBe("nice-to-meet-you");
     expect(getNextMission({ ...profile, completedMissionIds: ["nice-to-meet-you"] }, missions)?.id).toBe("my-everyday-life");
+  });
+
+  test("starts every CEFR level with a distinct learning path", () => {
+    const levels = ["A1", "A2", "B1", "B2", "C1", "C2"] as const;
+    const firstMissions = levels.map((level) => getMissionsForLevel(level)[0]);
+
+    expect(new Set(firstMissions.map((mission) => mission.id)).size).toBe(levels.length);
+    expect(new Set(firstMissions.map((mission) => mission.title)).size).toBe(levels.length);
+    expect(new Set(firstMissions.flatMap((mission) => mission.conceptIds)).size).toBe(firstMissions.length * 3);
+  });
+
+  test("raises exercise difficulty and skips beginner introductions at advanced levels", () => {
+    const a1 = getMissionsForLevel("A1")[0];
+    const c2 = getMissionsForLevel("C2")[0];
+
+    expect(c2.exercises[0].difficulty).toBeGreaterThan(a1.exercises[0].difficulty);
+    expect(c2.conceptIds).not.toContain("hello");
+    expect(c2.conversation.opening).not.toContain("What's your name");
+  });
+
+  test("does not silently replace a failed personal plan with static missions", () => {
+    expect(getMissionsForProfile(profile, "A1")).toEqual([]);
+    expect(getMissionsForProfile(undefined, "A1")).toHaveLength(2);
   });
 });
