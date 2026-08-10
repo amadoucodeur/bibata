@@ -20,7 +20,12 @@ function mergeMastery(local: ConceptMastery | undefined, remote: ConceptMastery 
   if (!remote) return local;
   const localFreshness = local.lastSeenAt ?? local.exposureCount;
   const remoteFreshness = remote.lastSeenAt ?? remote.exposureCount;
-  return localFreshness >= remoteFreshness ? local : remote;
+  const freshest = localFreshness >= remoteFreshness ? local : remote;
+  return {
+    ...freshest,
+    conversationUseCount: Math.max(local.conversationUseCount ?? 0, remote.conversationUseCount ?? 0),
+    assimilatedAt: local.assimilatedAt && remote.assimilatedAt ? Math.min(local.assimilatedAt, remote.assimilatedAt) : local.assimilatedAt ?? remote.assimilatedAt,
+  };
 }
 
 export function mergeLearningStates(local: PersistedState, remote: PersistedState): PersistedState {

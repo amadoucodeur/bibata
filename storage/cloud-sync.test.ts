@@ -24,12 +24,12 @@ describe("learning cloud merge", () => {
       schemaVersion: 1,
       profiles: [profile(10, [])],
       missionProgress: { one: { missionId: "one", status: "completed", completedAt: 10 } },
-      mastery: { known: { conceptId: "known", exposureCount: 1, recognition: .5, recall: .5, contextUnderstanding: .5, production: .5, masteryScore: .5, confidence: .5, correctCount: 1, incorrectCount: 0 } },
+      mastery: { known: { conceptId: "known", exposureCount: 1, recognition: .5, recall: .5, contextUnderstanding: .5, production: .5, masteryScore: .5, confidence: .5, correctCount: 1, incorrectCount: 0, conversationUseCount: 0 } },
     };
     const current: PersistedState = {
       ...previous,
       missionProgress: { ...previous.missionProgress, two: { missionId: "two", status: "in_progress" } },
-      mastery: { ...previous.mastery, new: { conceptId: "new", exposureCount: 1, recognition: .2, recall: .2, contextUnderstanding: .2, production: .2, masteryScore: .2, confidence: .2, correctCount: 1, incorrectCount: 0 } },
+      mastery: { ...previous.mastery, new: { conceptId: "new", exposureCount: 1, recognition: .2, recall: .2, contextUnderstanding: .2, production: .2, masteryScore: .2, confidence: .2, correctCount: 1, incorrectCount: 0, conversationUseCount: 0 } },
     };
     const delta = buildLearningSyncDelta(current, previous);
     expect(Object.keys(delta.missionProgress)).toEqual(["two"]);

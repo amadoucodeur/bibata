@@ -40,6 +40,8 @@ export interface ConceptMastery {
   confidence: number;
   correctCount: number;
   incorrectCount: number;
+  conversationUseCount: number;
+  assimilatedAt?: number;
   lastSeenAt?: number;
   nextSuggestedExposureAt?: number;
 }
@@ -125,6 +127,7 @@ export interface ExerciseAttempt {
   correct: boolean;
   response: string;
   mode: "recognition" | "recall" | "context" | "production";
+  source?: "exercise" | "conversation";
   answeredAt: number;
 }
 

@@ -29,6 +29,7 @@ export function createEmptyMastery(conceptId: string): ConceptMastery {
     confidence: 0,
     correctCount: 0,
     incorrectCount: 0,
+    conversationUseCount: 0,
   };
 }
 
@@ -49,6 +50,10 @@ export function updateConceptMastery(
   next.exposureCount += 1;
   next.correctCount += attempt.correct ? 1 : 0;
   next.incorrectCount += attempt.correct ? 0 : 1;
+  if (attempt.correct && attempt.source === "conversation") {
+    next.conversationUseCount = (next.conversationUseCount ?? 0) + 1;
+    next.assimilatedAt ??= attempt.answeredAt;
+  }
   next.lastSeenAt = attempt.answeredAt;
   next.nextSuggestedExposureAt = attempt.answeredAt + (attempt.correct ? 3 : 1) * 86_400_000;
   next.confidence = clamp(0.15 + next.exposureCount * 0.09);
@@ -60,6 +65,8 @@ export function updateConceptMastery(
   );
   return next;
 }
+
+export const isConceptAssimilated = (mastery: ConceptMastery | undefined) => Boolean(mastery?.assimilatedAt && mastery.conversationUseCount > 0);
 
 export function calculateMissionScore(attempts: ExerciseAttempt[]): MissionScore {
   if (attempts.length === 0) return { total: 0, concepts: 0, comprehension: 0, usage: 0 };

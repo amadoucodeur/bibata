@@ -30,7 +30,7 @@ function profile(value: unknown): LearningProfile | undefined {
 
 function mastery(conceptId: string, value: unknown): ConceptMastery {
   const item = value && typeof value === "object" ? value as Partial<ConceptMastery> : {};
-  return { conceptId, exposureCount: Math.round(clamp(item.exposureCount, 0, 100_000)), recognition: clamp(item.recognition), recall: clamp(item.recall), contextUnderstanding: clamp(item.contextUnderstanding), production: clamp(item.production), masteryScore: clamp(item.masteryScore), confidence: clamp(item.confidence), correctCount: Math.round(clamp(item.correctCount, 0, 100_000)), incorrectCount: Math.round(clamp(item.incorrectCount, 0, 100_000)), lastSeenAt: item.lastSeenAt ? timestamp(item.lastSeenAt) : undefined, nextSuggestedExposureAt: item.nextSuggestedExposureAt ? timestamp(item.nextSuggestedExposureAt) : undefined };
+  return { conceptId, exposureCount: Math.round(clamp(item.exposureCount, 0, 100_000)), recognition: clamp(item.recognition), recall: clamp(item.recall), contextUnderstanding: clamp(item.contextUnderstanding), production: clamp(item.production), masteryScore: clamp(item.masteryScore), confidence: clamp(item.confidence), correctCount: Math.round(clamp(item.correctCount, 0, 100_000)), incorrectCount: Math.round(clamp(item.incorrectCount, 0, 100_000)), conversationUseCount: Math.round(clamp(item.conversationUseCount, 0, 100_000)), assimilatedAt: item.assimilatedAt ? timestamp(item.assimilatedAt) : undefined, lastSeenAt: item.lastSeenAt ? timestamp(item.lastSeenAt) : undefined, nextSuggestedExposureAt: item.nextSuggestedExposureAt ? timestamp(item.nextSuggestedExposureAt) : undefined };
 }
 
 function progress(missionId: string, value: unknown): MissionProgress | undefined {

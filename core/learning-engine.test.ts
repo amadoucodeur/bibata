@@ -4,12 +4,13 @@ import {
   createEmptyMastery,
   estimateLevel,
   getNextMission,
+  isConceptAssimilated,
   selectOldConceptsForReview,
   updateConceptMastery,
 } from "./learning-engine";
 import { getMissionsForLevel, missions } from "../data/curriculum";
 import { getMissionsForProfile } from "./personalization";
-import { getAvailableConversationReplies, getDirectConversationOpening } from "./conversation";
+import { findConceptsUsedByLearner, getAvailableConversationReplies, getDirectConversationOpening } from "./conversation";
 import type { ExerciseAttempt, LearningProfile } from "../types/learning";
 
 const profile: LearningProfile = {
@@ -49,6 +50,14 @@ describe("learner model", () => {
     expect(selectOldConceptsForReview({ weak, strong })).toEqual(["hello"]);
   });
 
+  test("assimilates a concept only after the learner uses it in conversation", () => {
+    const guided = updateConceptMastery(undefined, { ...attempt(true, "production"), source: "exercise" });
+    const conversation = updateConceptMastery(guided, { ...attempt(true, "production"), source: "conversation", answeredAt: 2_000 });
+    expect(isConceptAssimilated(guided)).toBe(false);
+    expect(isConceptAssimilated(conversation)).toBe(true);
+    expect(conversation.assimilatedAt).toBe(2_000);
+  });
+
   test("smooths level estimation and increases confidence", () => {
     const result = estimateLevel(profile, [94, 92, 90]);
     expect(result.level).toBe("A1");
@@ -69,6 +78,18 @@ describe("game and curriculum", () => {
   test("replaces an AI scene narration with direct character dialogue", () => {
     expect(getDirectConversationOpening("You're exploring a vibrant tech district. How do you find the exhibit?")).toBe("Hi! Let's explore this together. What would you like to do first?");
     expect(getDirectConversationOpening("Hi! Where would you like to go?")).toBe("Hi! Where would you like to go?");
+  });
+
+  test("detects only target concepts actually written by the learner", () => {
+    const used = findConceptsUsedByLearner([
+      { id: "how-long", value: "How long does it take?" },
+      { id: "take-bus", value: "take the bus" },
+      { id: "sounds-good", value: "That sounds good" },
+    ], [
+      { id: "opening", role: "character", text: "You can take the bus." },
+      { id: "learner", role: "learner", text: "How long does it take by bus?" },
+    ]);
+    expect(used).toEqual(["how-long"]);
   });
 
   test("weights recognition, comprehension and production in mission score", () => {

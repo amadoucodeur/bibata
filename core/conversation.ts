@@ -19,3 +19,15 @@ export function getDirectConversationOpening(opening?: string) {
     ? text
     : "Hi! Let's explore this together. What would you like to do first?";
 }
+
+const normalizedConcept = (value: string) => value.toLocaleLowerCase().replace(/[’']/g, "").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+
+export function findConceptsUsedByLearner(targets: Array<{ id: string; value: string }>, messages: ConversationMessage[]) {
+  const learnerText = messages.filter((message) => message.role === "learner").map((message) => ` ${normalizedConcept(message.text)} `).join(" ");
+  return targets.filter((target) => {
+    const phrase = normalizedConcept(target.value);
+    if (!phrase) return false;
+    const variants = phrase.startsWith("that ") ? [phrase, phrase.slice(5)] : [phrase];
+    return variants.some((variant) => variant && learnerText.includes(` ${variant} `));
+  }).map((target) => target.id);
+}
