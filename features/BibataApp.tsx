@@ -10,9 +10,13 @@ import { countCompletedConversationTurns } from "@/core/conversation";
 import { calculateMissionScore, createEmptyMastery, updateConceptMastery } from "@/core/learning-engine";
 import { buildMissionsFromPlan, getMissionsForProfile } from "@/core/personalization";
 import { getConcept, getTrackMeta, interestOptions, languages, missions, roadmap } from "@/data/curriculum";
+import { getContextVisual } from "@/data/context-visuals";
 import { emptyState, storageRepository } from "@/storage/repository";
+import { mergeFromCloud } from "@/storage/cloud-sync";
 import { usePWA } from "@/features/usePWA";
 import type { InstallPlatform } from "@/features/pwa-platform";
+import { playUISound, speakText, useAudio } from "@/features/audio";
+import { BillingPanel } from "@/features/BillingPanel";
 import {
   CEFR_LEVELS,
   type CEFRLevel,
@@ -31,8 +35,11 @@ type PlanningTask = "first-plan" | "recompose" | "next-mission" | "migration";
 type PlanningState = { mode: "foreground" | "background"; task: PlanningTask } | null;
 
 const INSTALL_NUDGE_KEY = "bibata-install-nudge-dismissed-at";
-const INSTALL_NUDGE_SNOOZE_MS = 30 * 24 * 60 * 60_000;
+const INSTALL_NUDGE_SNOOZE_MS = 7 * 24 * 60 * 60_000;
 const INSTALL_NUDGE_EVENT = "bibata-install-nudge-change";
+const ACCOUNT_NUDGE_KEY = "bibata-account-nudge-dismissed-at";
+const ACCOUNT_NUDGE_SNOOZE_MS = 7 * 24 * 60 * 60_000;
+const ACCOUNT_NUDGE_EVENT = "bibata-account-nudge-change";
 
 function subscribeToInstallNudge(callback: () => void) {
   window.addEventListener("storage", callback);
@@ -49,6 +56,24 @@ function getInstallNudgeSnapshot() {
 }
 
 function getInstallNudgeServerSnapshot() {
+  return true;
+}
+
+function subscribeToAccountNudge(callback: () => void) {
+  window.addEventListener("storage", callback);
+  window.addEventListener(ACCOUNT_NUDGE_EVENT, callback);
+  return () => {
+    window.removeEventListener("storage", callback);
+    window.removeEventListener(ACCOUNT_NUDGE_EVENT, callback);
+  };
+}
+
+function getAccountNudgeSnapshot() {
+  const dismissedAt = Number(window.localStorage.getItem(ACCOUNT_NUDGE_KEY));
+  return Number.isFinite(dismissedAt) && Date.now() - dismissedAt < ACCOUNT_NUDGE_SNOOZE_MS;
+}
+
+function getAccountNudgeServerSnapshot() {
   return true;
 }
 
@@ -71,15 +96,6 @@ const firstMissionGreetings: Record<CEFRLevel, string> = {
   C1: "Prêt·e à affiner ta pensée ?",
   C2: "Prêt·e à jouer avec les nuances ?",
 };
-const levelGuidance: Record<CEFRLevel, string> = {
-  A1: "Repère les mots essentiels et le rythme de la phrase.",
-  A2: "Observe comment la structure permet d'agir dans une situation courante.",
-  B1: "Repère le lien logique entre les idées pour réutiliser la tournure naturellement.",
-  B2: "Note la nuance : la formulation maintient le dialogue sans effacer le désaccord.",
-  C1: "Observe la précision du positionnement et ce que chaque connecteur concède ou défend.",
-  C2: "Cherche le sous-texte, l'intention rhétorique et l'effet produit au-delà du sens littéral.",
-};
-
 const LogoMark = ({ className = "" }: { className?: string }) => (
   <Image className={`logo-symbol ${className}`.trim()} src={logoMark} alt="" aria-hidden="true" sizes="40px" />
 );
@@ -141,6 +157,10 @@ function ProgressLine({ value, label = "Progression" }: { value: number; label?:
   return <span className="progress-line" role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={safeValue}><span style={{ width: `${safeValue}%` }} /></span>;
 }
 
+function SpeechButton({ text, language, enabled, label = "Écouter la prononciation" }: { text: string; language: string; enabled: boolean; label?: string }) {
+  return <button className="speech-button" type="button" disabled={!enabled} onClick={() => speakText(text, language)} aria-label={`${label} : ${text}`} title={enabled ? label : "Active les sons dans les réglages"}><span aria-hidden="true">{enabled ? "◖))" : "◖×"}</span>{enabled ? "Écouter" : "Son coupé"}</button>;
+}
+
 function Toast({ message }: { message: string }) {
   return <div className="toast" role="status" aria-live="polite"><span aria-hidden="true">✓</span>{message}</div>;
 }
@@ -165,6 +185,17 @@ function InstallGuideDialog({ onClose }: { onClose: () => void }) {
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [onClose]);
   return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="install-guide-dialog" role="dialog" aria-modal="true" aria-labelledby="install-guide-title"><span className="install-guide-avatar" aria-hidden="true"><Image src={mascotAvatar} alt="" sizes="72px" /></span><p className="eyebrow">Sur iPhone et iPad</p><h2 id="install-guide-title">Garde Bibata à portée de main</h2><p>Apple ne montre pas toujours un bouton d’installation. Il suffit de suivre ces trois étapes :</p><ol><li><span>1</span>Ouvre le menu <strong>Partager</strong> de ton navigateur.</li><li><span>2</span>Choisis <strong>Sur l’écran d’accueil</strong>.</li><li><span>3</span>Appuie sur <strong>Ajouter</strong>.</li></ol><button ref={closeRef} className="primary-button" type="button" onClick={onClose}>J’ai compris <span>✓</span></button></section></div>;
+}
+
+function AccountRequiredDialog({ onClose }: { onClose: () => void }) {
+  const connectRef = useRef<HTMLAnchorElement>(null);
+  useEffect(() => {
+    connectRef.current?.focus();
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [onClose]);
+  return <div className="dialog-backdrop" role="presentation"><section className="account-required-dialog" role="dialog" aria-modal="true" aria-labelledby="account-required-title" aria-describedby="account-required-description"><span className="account-required-avatar" aria-hidden="true"><Image src={mascotAvatar} alt="" sizes="78px" /></span><p className="eyebrow">Première mission terminée</p><h2 id="account-required-title">Connecte-toi pour continuer</h2><p id="account-required-description">Ta première mission reste gratuite et enregistrée sur cet appareil. Un compte Google est maintenant nécessaire pour débloquer la suite et protéger ta progression.</p><a ref={connectRef} href="/auth/google?next=/">Continuer avec Google <span aria-hidden="true">→</span></a><button type="button" onClick={onClose}>Revenir à l’accueil</button></section></div>;
 }
 
 function OnboardingLanguage({ onChoose }: { onChoose: (code: string) => void }) {
@@ -222,7 +253,7 @@ function AppHeader({ completedCount }: { completedCount: number }) {
   return <header className="app-header"><Logo /><span className="completion-badge" aria-label={`${completedCount} mission${completedCount > 1 ? "s" : ""} terminée${completedCount > 1 ? "s" : ""}`}><span aria-hidden="true">✓</span>{completedCount}</span></header>;
 }
 
-function HomeScreen({ profile, availableMissions, learnedCount, showInstallNudge, installPlatform, offlineReady, planningPlan, planIssue, onContinue, onRetry, onInstall, onDismissInstall, onNavigate }: { profile: LearningProfile; availableMissions: Mission[]; learnedCount: number; showInstallNudge: boolean; installPlatform: InstallPlatform; offlineReady: boolean; planningPlan: boolean; planIssue: string; onContinue: () => void; onRetry: () => void; onInstall: () => void; onDismissInstall: () => void; onNavigate: (view: View) => void }) {
+function HomeScreen({ profile, availableMissions, learnedCount, showInstallNudge, showAccountNudge, installPlatform, offlineReady, planningPlan, planIssue, onContinue, onRetry, onInstall, onDismissInstall, onDismissAccount, onNavigate }: { profile: LearningProfile; availableMissions: Mission[]; learnedCount: number; showInstallNudge: boolean; showAccountNudge: boolean; installPlatform: InstallPlatform; offlineReady: boolean; planningPlan: boolean; planIssue: string; onContinue: () => void; onRetry: () => void; onInstall: () => void; onDismissInstall: () => void; onDismissAccount: () => void; onNavigate: (view: View) => void }) {
   const currentLevel = profile.estimatedLevel ?? "A1";
   const nextMission = availableMissions.find((mission) => !profile.completedMissionIds.includes(mission.id));
   const completed = availableMissions.filter((mission) => profile.completedMissionIds.includes(mission.id)).length;
@@ -235,22 +266,23 @@ function HomeScreen({ profile, availableMissions, learnedCount, showInstallNudge
     ? { title: profile.learningPlan.title, eyebrow: profile.learningPlan.focus }
     : getTrackMeta(currentLevel);
   const installCopy = installPlatform === "ios"
-    ? { title: "Garde Bibata sur ton écran", description: "Sur iPhone ou iPad, ajoute-la depuis le menu Partager.", action: "Voir comment" }
+    ? { title: "Installe Bibata sur ton écran", description: "Retrouve tes missions en un geste, sans rouvrir le navigateur.", action: "Ajouter à l’écran" }
     : installPlatform === "android"
-      ? { title: "Emporte Bibata avec toi", description: offlineReady ? "Accès rapide et interface disponible hors ligne." : "Installe-la comme une vraie application Android.", action: "Installer" }
-      : { title: "Ouvre Bibata comme une app", description: "Un accès direct, sans chercher l’onglet du navigateur.", action: "Installer" };
+      ? { title: "Installe Bibata maintenant", description: offlineReady ? "Accès immédiat, plein écran et interface disponible hors ligne." : "Ajoute Bibata comme une vraie application sur ton téléphone.", action: "Installer Bibata" }
+      : { title: "Installe Bibata maintenant", description: "Lance-la en un clic, dans sa propre fenêtre, sans chercher cet onglet.", action: "Installer Bibata" };
   return <main className="app-shell page-enter"><AppHeader completedCount={completed} />
     <section className="greeting"><p>Bonjour <span aria-hidden="true">👋</span></p><h1>{completed ? "On garde le rythme ?" : firstMissionGreetings[currentLevel]}</h1></section>
     {(planningPlan || planIssue) && <section className={`plan-status-card ${planIssue ? "error" : ""}`} role={planIssue ? "alert" : "status"}><span aria-hidden="true">✦</span><div><strong>{planningPlan ? "Bibata prépare la suite…" : "La prochaine mission attend"}</strong><p>{planningPlan ? "Ton fil reste le même pendant qu’une nouvelle situation se compose discrètement." : planIssue}</p></div>{planIssue && <button type="button" onClick={onRetry}>Réessayer</button>}</section>}
+    {showInstallNudge && <aside className="install-card install-card-prominent" aria-label="Installer Bibata"><button type="button" className="install-dismiss" onClick={onDismissInstall} aria-label="Me le rappeler dans sept jours">×</button><span className="install-mascot" aria-hidden="true"><Image src={mascotAvatar} alt="" sizes="68px" /></span><div><span className="install-kicker">Bibata sur ton appareil</span><strong>{installCopy.title}</strong><small>{installCopy.description}</small><span className="install-benefits" aria-label="Avantages : accès rapide, plein écran et progression conservée"><i>Accès rapide</i><i>Plein écran</i><i>Progression gardée</i></span><button type="button" className="install-action" onClick={onInstall}>{installCopy.action} <span aria-hidden="true">→</span></button></div></aside>}
     <div className="home-grid">
       <section className="hero-card" aria-labelledby="next-mission-title"><div className="hero-card-top"><span className="language-pill">{profile.languageFlag} {profile.languageName}</span><span className="hero-level">Niveau {profile.estimatedLevel ?? "A1"}</span></div>
         <div className="level-row"><div><small>Missions terminées</small><strong>{completed}</strong></div><div><small>Concepts rencontrés</small><strong>{learnedCount}</strong></div></div>
         {nextMission ? <div className="mission-preview"><span className="mission-number">{String(nextMission.order).padStart(2, "0")}</span><div><small>Prochaine mission · {nextMission.eyebrow}</small><h2 id="next-mission-title">{nextMission.title}</h2><p>Environ {nextMission.durationMinutes} min · {nextMission.conceptIds.length} concepts</p></div></div> : <div className="mission-preview"><span className="mission-number">✦</span><div><small>Prochaine sélection</small><h2 id="next-mission-title">{planningPlan ? "Elle arrive…" : "Prête à être composée"}</h2><p>Bibata repart exactement de là où tu t’es arrêté·e.</p></div></div>}
         <button className="primary-button light" type="button" onClick={!nextMission && planIssue ? onRetry : onContinue} disabled={!nextMission && planningPlan}>{nextMission ? (completed ? "Continuer mon parcours" : "Commencer ma première mission") : (planIssue ? "Réessayer" : "Préparer la suite")}<span>{planningPlan && !nextMission ? "✦" : "→"}</span></button></section>
       <div className="home-side">
+        {showAccountNudge && <aside className="account-nudge" aria-label="Sauvegarder ma progression"><button type="button" className="account-nudge-dismiss" onClick={onDismissAccount} aria-label="Me le rappeler dans sept jours">×</button><span className="account-nudge-avatar" aria-hidden="true"><Image src={mascotAvatar} alt="" sizes="54px" /></span><div><span className="account-nudge-kicker">Ta première mission est terminée</span><strong>Ne perds pas ta progression</strong><p>Connecte-toi pour la retrouver sur tes autres appareils et continuer exactement où tu t’es arrêté·e.</p><a href="/auth/google?next=/">Continuer avec Google <span aria-hidden="true">→</span></a></div></aside>}
         <section className="today-strip"><div className="mini-ring" style={ringStyle}><strong>{completedInWorld}</strong><small>✓</small></div><div><strong>{trackMeta.title}</strong><p>{completed ? "La suite évolue avec toi" : trackMeta.eyebrow}</p></div></section>
         <section className="availability-card"><span aria-hidden="true">✦</span><div><strong>Des sessions courtes, sans pression</strong><p>Une mission suffit pour avancer. Ta progression est enregistrée automatiquement.</p></div></section>
-        {showInstallNudge && <aside className="install-card" aria-label="Installer Bibata"><button type="button" className="install-dismiss" onClick={onDismissInstall} aria-label="Me le rappeler plus tard">×</button><span className="install-mascot" aria-hidden="true"><Image src={mascotAvatar} alt="" sizes="54px" /></span><div><strong>{installCopy.title}</strong><small>{installCopy.description}</small><button type="button" className="install-action" onClick={onInstall}>{installCopy.action} <span aria-hidden="true">→</span></button></div></aside>}
       </div>
     </div>
     <BottomNav active="home" onNavigate={onNavigate} />
@@ -288,7 +320,7 @@ interface PWAStatus {
   platform: InstallPlatform;
 }
 
-function SettingsScreen({ profile, pwa, planningPlan, onInstall, onNavigate, onNotify, onResetRequest, onImport, onLevelChange, onReplan }: { profile: LearningProfile; pwa: PWAStatus; planningPlan: boolean; onInstall: () => void; onNavigate: (view: View) => void; onNotify: (message: string) => void; onResetRequest: () => void; onImport: (value: string) => void; onLevelChange: (level: CEFRLevel) => void; onReplan: () => void }) {
+function SettingsScreen({ profile, billingActiveMissionId, pwa, soundEnabled, planningPlan, onInstall, onToggleSound, onNavigate, onNotify, onResetRequest, onImport, onLevelChange, onReplan }: { profile: LearningProfile; billingActiveMissionId?: string; pwa: PWAStatus; soundEnabled: boolean; planningPlan: boolean; onInstall: () => void; onToggleSound: () => void; onNavigate: (view: View) => void; onNotify: (message: string) => void; onResetRequest: () => void; onImport: (value: string) => void; onLevelChange: (level: CEFRLevel) => void; onReplan: () => void }) {
   const importRef = useRef<HTMLInputElement>(null);
   const currentLevel = profile.estimatedLevel ?? "A1";
   const completedCount = getMissionsForProfile(profile, currentLevel).filter((mission) => profile.completedMissionIds.includes(mission.id)).length;
@@ -308,14 +340,15 @@ function SettingsScreen({ profile, pwa, planningPlan, onInstall, onNavigate, onN
     <div className="settings-layout">
       <div>
         <section className="settings-group"><h2>Apprentissage</h2><label className="level-setting"><span className="settings-icon">Aa</span><div><strong>Niveau du parcours</strong><small>{levelDescriptions[currentLevel]} · contenu, difficulté et modèle adaptés</small></div><select value={currentLevel} disabled={planningPlan} onChange={(event) => onLevelChange(event.target.value as CEFRLevel)} aria-label="Niveau du parcours">{CEFR_LEVELS.map((level) => <option key={level} value={level}>{level}</option>)}</select></label><button className="settings-row" type="button" onClick={onReplan} disabled={planningPlan}><span className="settings-icon">✦</span><div><strong>{planningPlan ? "Composition en cours…" : "Recomposer mon parcours"}</strong><small>{profile.learningPlan?.focus ?? "Créer un itinéraire lié à tes intérêts"}</small></div><i aria-hidden="true">↻</i></button></section>
-        <section className="settings-group"><h2>Application</h2><button className="settings-row" type="button" onClick={onInstall} disabled={!installAvailable || pwa.isInstalled}><span className="settings-icon">↓</span><div><strong>Installer Bibata</strong><small>{installDescription}</small></div><i aria-hidden="true">{pwa.isInstalled ? "✓" : "›"}</i></button><div className="settings-static-row"><span className={`settings-icon ${pwa.isOnline ? "online" : "offline"}`}>●</span><div><strong>{pwa.isOnline ? "Connexion disponible" : "Mode hors ligne"}</strong><small>{pwa.offlineReady ? "L’interface reste accessible hors ligne" : "Une connexion est nécessaire pour discuter avec Bibata"}</small></div><i aria-hidden="true">{pwa.isOnline ? "✓" : "—"}</i></div></section>
+        <section className="settings-group"><h2>Application</h2><button className="settings-row" type="button" onClick={onToggleSound} aria-pressed={soundEnabled}><span className="settings-icon">{soundEnabled ? "♫" : "×"}</span><div><strong>Sons et prononciation</strong><small>{soundEnabled ? "Voix des concepts et retours sonores activés" : "Tous les sons sont désactivés"}</small></div><i aria-hidden="true">{soundEnabled ? "✓" : "—"}</i></button><button className="settings-row" type="button" onClick={onInstall} disabled={!installAvailable || pwa.isInstalled}><span className="settings-icon">↓</span><div><strong>Installer Bibata</strong><small>{installDescription}</small></div><i aria-hidden="true">{pwa.isInstalled ? "✓" : "›"}</i></button><div className="settings-static-row"><span className={`settings-icon ${pwa.isOnline ? "online" : "offline"}`}>●</span><div><strong>{pwa.isOnline ? "Connexion disponible" : "Mode hors ligne"}</strong><small>{pwa.offlineReady ? "L’interface reste accessible hors ligne" : "Une connexion est nécessaire pour discuter avec Bibata"}</small></div><i aria-hidden="true">{pwa.isOnline ? "✓" : "—"}</i></div></section>
       </div>
       <div>
+        <section className="settings-group"><h2>Facturation</h2><BillingPanel activeMissionId={billingActiveMissionId} /></section>
         <section className="settings-group"><h2>Tes données</h2><button className="settings-row" type="button" onClick={() => void exportData()}><span className="settings-icon">⇩</span><div><strong>Exporter mes données</strong><small>Télécharger une sauvegarde JSON</small></div><i aria-hidden="true">›</i></button><button className="settings-row" type="button" onClick={() => importRef.current?.click()}><span className="settings-icon">⇧</span><div><strong>Importer une sauvegarde</strong><small>Restaurer une progression Bibata</small></div><i aria-hidden="true">›</i></button><input ref={importRef} hidden type="file" accept="application/json" onChange={async (event) => { const file = event.target.files?.[0]; if (file) onImport(await file.text()); event.target.value = ""; }} /></section>
         <section className="settings-group"><h2>Zone sensible</h2><button className="settings-row danger-row" type="button" onClick={onResetRequest}><span className="settings-icon">↺</span><div><strong>Réinitialiser la progression</strong><small>Effacer les données enregistrées sur cet appareil</small></div><i aria-hidden="true">›</i></button></section>
       </div>
     </div>
-    <p className="version-note">Bibata · Version locale · Données privées sur cet appareil</p><BottomNav active="settings" onNavigate={onNavigate} />
+    <p className="version-note">Bibata · Progression locale · Facturation sécurisée côté serveur</p><BottomNav active="settings" onNavigate={onNavigate} />
   </main>;
 }
 
@@ -323,7 +356,7 @@ function MissionHeader({ progress, onClose }: { progress: number; onClose: () =>
   return <header className="mission-header"><button type="button" className="icon-button" onClick={onClose} aria-label="Quitter la mission">×</button><ProgressLine value={progress} label="Progression de la mission" /><span>{progress}%</span></header>;
 }
 
-function ExerciseCard({ exercise, onAnswer }: { exercise: Exercise; onAnswer: (answer: string, correct: boolean) => void }) {
+function ExerciseCard({ exercise, language, soundEnabled, onAnswer }: { exercise: Exercise; language: string; soundEnabled: boolean; onAnswer: (answer: string, correct: boolean) => void }) {
   const [selected, setSelected] = useState("");
   const [checked, setChecked] = useState(false);
   const [tokens, setTokens] = useState<string[]>([]);
@@ -340,11 +373,20 @@ function ExerciseCard({ exercise, onAnswer }: { exercise: Exercise; onAnswer: (a
     if (exercise.type === "sentence_builder") setTokens((current) => current.includes(choice) ? current.filter((item) => item !== choice) : [...current, choice]);
     else setSelected(choice);
   };
+  const validateOrContinue = () => {
+    if (checked) {
+      playUISound("transition");
+      onAnswer(answer, correct);
+      return;
+    }
+    setChecked(true);
+    playUISound(correct ? "success" : "error");
+  };
   return <section className="exercise-body"><p className="eyebrow">À toi de jouer</p><h1>{exercise.prompt}</h1>
     {exercise.type === "sentence_builder" && <div className="sentence-slot" aria-live="polite">{tokens.length ? tokens.join(" ") : <span>Touche les mots dans l’ordre</span>}</div>}
     <div className={exercise.type === "sentence_builder" ? "token-grid" : "choice-list"}>{choices.map((choice, index) => { const active = exercise.type === "sentence_builder" ? tokens.includes(choice) : selected === choice; const revealClass = checked && normalizeAnswer(choice) === normalizeAnswer(exercise.payload.answer) ? "correct" : checked && active && !correct ? "incorrect" : ""; return <button type="button" className={`${active ? "selected" : ""} ${revealClass}`} key={choice} onClick={() => select(choice)} disabled={checked} aria-pressed={active}><span>{exercise.type === "sentence_builder" ? choice : String.fromCharCode(65 + index)}</span>{exercise.type !== "sentence_builder" && <strong>{choice}</strong>}{checked && normalizeAnswer(choice) === normalizeAnswer(exercise.payload.answer) && <i aria-hidden="true">✓</i>}</button>; })}</div>
-    {checked && <BibataCoach tone={correct ? "success" : "gentle"} title={correct ? "Bien joué" : "On ajuste"} compact announce>{correct ? successCopy : <>La bonne réponse est <b>{exercise.payload.answer}</b>. Relis-la une fois avant de continuer : c’est elle qui compte, pas l’erreur.</>}</BibataCoach>}
-    <div className="sticky-action"><button className="primary-button" type="button" disabled={!answer} onClick={() => checked ? onAnswer(answer, correct) : setChecked(true)}>{checked ? "Continuer" : "Vérifier"}<span>→</span></button></div>
+    {checked && <><BibataCoach tone={correct ? "success" : "gentle"} title={correct ? "Bien joué" : "On ajuste"} compact announce>{correct ? successCopy : <>La bonne réponse est <b>{exercise.payload.answer}</b>. Relis-la une fois avant de continuer : c’est elle qui compte, pas l’erreur.</>}</BibataCoach><SpeechButton text={exercise.payload.answer} language={language} enabled={soundEnabled} label="Écouter la bonne réponse" /></>}
+    <div className="sticky-action"><button className="primary-button" type="button" disabled={!answer} onClick={validateOrContinue}>{checked ? "Continuer" : "Vérifier"}<span>→</span></button></div>
   </section>;
 }
 
@@ -401,6 +443,7 @@ function ConversationStage({ mission, level, isOnline, onComplete }: { mission: 
     try {
       const response = await aiProvider.generateConversationTurn(mission.conversation, conversationMessages, level);
       setMessages((current) => [...current, response]);
+      playUISound("message");
     } catch (error) {
       setAiError(getConversationErrorMessage(error, isOnline));
     } finally {
@@ -418,6 +461,7 @@ function ConversationStage({ mission, level, isOnline, onComplete }: { mission: 
     setMessages(next);
     setDraft("");
     setAiError("");
+    playUISound("send");
     await requestReply(next);
   };
 
@@ -428,7 +472,7 @@ function ConversationStage({ mission, level, isOnline, onComplete }: { mission: 
   </section>;
 }
 
-function MissionFlow({ mission, level, isOnline, onEngaged, onExit, onFinish }: { mission: Mission; level: CEFRLevel; isOnline: boolean; onEngaged: () => void; onExit: () => void; onFinish: (attempts: ExerciseAttempt[], score: MissionScore) => void }) {
+function MissionFlow({ mission, level, isOnline, soundEnabled, onEngaged, onExit, onFinish }: { mission: Mission; level: CEFRLevel; isOnline: boolean; soundEnabled: boolean; onEngaged: () => void; onExit: () => void; onFinish: (attempts: ExerciseAttempt[], score: MissionScore) => void }) {
   const [stage, setStage] = useState<MissionStage>("intro");
   const [conceptIndex, setConceptIndex] = useState(0);
   const [exerciseIndex, setExerciseIndex] = useState(0);
@@ -437,10 +481,11 @@ function MissionFlow({ mission, level, isOnline, onEngaged, onExit, onFinish }: 
   const [exitConfirm, setExitConfirm] = useState(false);
   const missionConcepts = mission.conceptIds.map((id) => getConcept(id)).filter((item) => item !== undefined);
   const concept = missionConcepts[conceptIndex];
+  const conceptVisual = concept ? getContextVisual(concept.categories) : undefined;
   const progressMap: Record<MissionStage, number> = { intro: 4, discover: 20 + conceptIndex * 6, context: 48, exercise: 55 + exerciseIndex * 10, conversation: 88, result: 100 };
   const requestExit = () => { if (stage === "intro") onExit(); else setExitConfirm(true); };
-  const beginMission = () => { onEngaged(); setStage("discover"); };
-  const advanceConcept = () => { if (conceptIndex < missionConcepts.length - 1) setConceptIndex((index) => index + 1); else { setConceptIndex(0); setStage("context"); } };
+  const beginMission = () => { playUISound("transition"); onEngaged(); setStage("discover"); };
+  const advanceConcept = () => { playUISound("transition"); if (conceptIndex < missionConcepts.length - 1) setConceptIndex((index) => index + 1); else { setConceptIndex(0); setStage("context"); } };
   const recordAnswer = (answer: string, correct: boolean) => {
     const exercise = mission.exercises[exerciseIndex];
     const modes: ExerciseAttempt["mode"][] = ["recognition", "context", "production"];
@@ -455,14 +500,15 @@ function MissionFlow({ mission, level, isOnline, onEngaged, onExit, onFinish }: 
     const completeAttempts = [...attempts, conversationAttempt];
     setAttempts(completeAttempts);
     setScore(calculateMissionScore(completeAttempts));
+    playUISound("complete");
     setStage("result");
   };
 
   let screen: ReactNode;
   if (stage === "intro") screen = <main className="mission-shell intro-screen page-enter"><MissionHeader progress={progressMap[stage]} onClose={requestExit} /><section className="mission-intro"><div className="mission-guide-portrait" aria-hidden="true"><span>✦</span><Image src={mascotAvatar} alt="" sizes="150px" /><i /><i /></div><p className="eyebrow">Mission {mission.order} · {mission.eyebrow}</p><h1>{mission.title}</h1><p>{mission.description}</p><div className="mission-meta"><span>◷ {mission.durationMinutes} min</span><span>＋ {mission.conceptIds.length} concepts</span><span>Niveau {level}</span></div></section><div className="sticky-action"><button className="primary-button" type="button" onClick={beginMission}>Commencer <span>→</span></button></div></main>;
-  else if (stage === "discover" && concept) screen = <main className="mission-shell page-enter"><MissionHeader progress={progressMap[stage]} onClose={requestExit} /><section className="concept-stage"><p className="eyebrow">Nouveau concept · {conceptIndex + 1} sur {missionConcepts.length}</p><div className="concept-visual"><span>{concept.type === "word" ? "Aa" : "…"}</span></div><h1>{concept.value}</h1><p className="translation">{concept.translation}</p><span className="type-pill">{concept.type === "word" ? "Mot" : concept.type === "expression" ? "Expression" : "Construction"}</span>{conceptIndex === 0 && <BibataCoach compact>{concept.type === "word" ? "Lis-le une fois à voix haute. Le son aide la mémoire à l’accrocher." : "Cherche d’abord l’intention de l’expression, pas une traduction mot à mot."}</BibataCoach>}</section><div className="sticky-action"><button className="primary-button" type="button" onClick={advanceConcept}>J’ai compris <span>→</span></button></div></main>;
-  else if (stage === "context" && concept) screen = <main className="mission-shell page-enter"><MissionHeader progress={progressMap[stage]} onClose={requestExit} /><section className="context-stage"><p className="eyebrow">En contexte</p><div className="quote-mark">“</div><blockquote>{concept.examples[0].text}</blockquote><p>{concept.examples[0].translation}</p><BibataCoach title="Le regard de Bibata" compact>{levelGuidance[level]}</BibataCoach></section><div className="sticky-action"><button className="primary-button" type="button" onClick={() => setStage("exercise")}>À moi de jouer <span>→</span></button></div></main>;
-  else if (stage === "exercise") screen = <main className="mission-shell"><MissionHeader progress={progressMap[stage]} onClose={requestExit} /><ExerciseCard key={mission.exercises[exerciseIndex].id} exercise={mission.exercises[exerciseIndex]} onAnswer={recordAnswer} /></main>;
+  else if (stage === "discover" && concept && conceptVisual) screen = <main className="mission-shell page-enter"><MissionHeader progress={progressMap[stage]} onClose={requestExit} /><section className="concept-stage"><p className="eyebrow">Nouveau concept · {conceptIndex + 1} sur {missionConcepts.length}</p><div className="concept-visual contextual"><Image src={conceptVisual.src} alt={conceptVisual.alt} fill unoptimized sizes="(min-width: 700px) 360px, calc(100vw - 48px)" /><span className="context-visual-shade" aria-hidden="true" /></div><h1>{concept.value}</h1><p className="translation">{concept.translation}</p><SpeechButton text={concept.value} language={concept.language} enabled={soundEnabled} /><span className="type-pill">{concept.type === "word" ? "Mot" : concept.type === "expression" ? "Expression" : "Construction"}</span>{conceptIndex === 0 && <BibataCoach compact>{concept.type === "word" ? "Observe la situation, écoute le mot, puis répète-le une fois à voix haute." : "Appuie-toi sur la scène et le rythme pour saisir l’intention, pas seulement la traduction."}</BibataCoach>}</section><div className="sticky-action"><button className="primary-button" type="button" onClick={advanceConcept}>J’ai compris <span>→</span></button></div></main>;
+  else if (stage === "context" && concept) screen = <main className="mission-shell page-enter"><MissionHeader progress={progressMap[stage]} onClose={requestExit} /><section className="context-stage"><p className="eyebrow">En contexte</p><div className="quote-mark">“</div><blockquote>{concept.examples[0].text}</blockquote><p>{concept.examples[0].translation}</p><SpeechButton text={concept.examples[0].text} language={concept.language} enabled={soundEnabled} label="Écouter la phrase" /></section><div className="sticky-action"><button className="primary-button" type="button" onClick={() => { playUISound("transition"); setStage("exercise"); }}>À moi de jouer <span>→</span></button></div></main>;
+  else if (stage === "exercise") screen = <main className="mission-shell"><MissionHeader progress={progressMap[stage]} onClose={requestExit} /><ExerciseCard key={mission.exercises[exerciseIndex].id} exercise={mission.exercises[exerciseIndex]} language={missionConcepts[0]?.language ?? "en"} soundEnabled={soundEnabled} onAnswer={recordAnswer} /></main>;
   else if (stage === "conversation") screen = <main className="mission-shell"><MissionHeader progress={progressMap[stage]} onClose={requestExit} /><ConversationStage mission={mission} level={level} isOnline={isOnline} onComplete={completeConversation} /></main>;
   else screen = <main className="mission-shell result-screen page-enter"><section className="result-hero"><div className="result-mascot" aria-hidden="true"><Image src={mascot} alt="" sizes="150px" /><span>✓</span><i /><i /></div><p className="eyebrow">Mission {mission.order} terminée</p><h1>Beau travail !</h1><p>Tu as reconnu, compris et utilisé tes nouveaux mots dans une vraie situation.</p></section><div className="score-card"><div className="score-total"><span><strong>{score.total}</strong>/100</span><p>Score global</p></div>{(["concepts", "comprehension", "usage"] as const).map((item) => <div className="score-row" key={item}><span>{item === "concepts" ? "Concepts" : item === "comprehension" ? "Compréhension" : "Utilisation"}</span><ProgressLine value={score[item]} label={`Score ${item}`} /><strong>{score[item]}%</strong></div>)}</div><div className="learned-banner"><span>＋{mission.conceptIds.length}</span><div><strong>concepts rencontrés</strong><p>Ils reviendront naturellement dans les prochaines missions.</p></div></div><div className="sticky-action"><button className="primary-button" type="button" onClick={() => onFinish(attempts, score)}>Revenir à l’accueil <span>→</span></button></div></main>;
 
@@ -481,6 +527,8 @@ export default function BibataApp() {
   const [planning, setPlanning] = useState<PlanningState>(null);
   const [showPlanningScreen, setShowPlanningScreen] = useState(false);
   const [installGuideOpen, setInstallGuideOpen] = useState(false);
+  const [accountRequiredOpen, setAccountRequiredOpen] = useState(false);
+  const [authenticated, setAuthenticated] = useState<boolean>();
   const [onboardingPlanError, setOnboardingPlanError] = useState("");
   const [planIssue, setPlanIssue] = useState("");
   const noticeTimer = useRef<number | undefined>(undefined);
@@ -488,13 +536,23 @@ export default function BibataApp() {
   const nextMissionRequest = useRef<Promise<Mission | undefined> | null>(null);
   const onboardingSeed = useRef("");
   const pwa = usePWA();
+  const audio = useAudio();
   const installNudgeDismissed = useSyncExternalStore(subscribeToInstallNudge, getInstallNudgeSnapshot, getInstallNudgeServerSnapshot);
+  const accountNudgeDismissed = useSyncExternalStore(subscribeToAccountNudge, getAccountNudgeSnapshot, getAccountNudgeServerSnapshot);
   const planningPlan = planning !== null;
   const profile = state.profiles.find((item) => item.language === (state.activeLanguage ?? "en"));
+  const activeProfileId = profile?.id;
   const currentLevel = profile?.estimatedLevel ?? selectedLevel;
   const levelMissions = useMemo(() => getMissionsForProfile(profile, currentLevel), [currentLevel, profile]);
   const levelConceptIds = useMemo(() => new Set(levelMissions.flatMap((mission) => mission.conceptIds)), [levelMissions]);
   const learnedCount = useMemo(() => Object.values(state.mastery).filter((item) => item.exposureCount > 0 && levelConceptIds.has(item.conceptId)).length, [levelConceptIds, state.mastery]);
+  const billingActiveMissionId = useMemo(() => {
+    const now = new Date();
+    return Object.values(state.missionProgress)
+      .filter((item) => item.status === "completed" && item.completedAt && new Date(item.completedAt).getUTCFullYear() === now.getUTCFullYear() && new Date(item.completedAt).getUTCMonth() === now.getUTCMonth())
+      .sort((left, right) => (left.completedAt ?? 0) - (right.completedAt ?? 0))
+      .at(-1)?.missionId;
+  }, [state.missionProgress]);
   const effectivePlanIssue = planIssue || (!loading && profile && !profile.learningPlan && !pwa.isOnline ? getPlanErrorMessage(undefined, false) : "");
 
   const notify = (message: string) => {
@@ -505,12 +563,35 @@ export default function BibataApp() {
 
   useEffect(() => {
     storageRepository.getState().then((saved) => {
+      const params = new URLSearchParams(window.location.search);
+      const openSettings = params.get("onglet") === "reglages" || params.has("paiement");
       setState(saved);
-      setView(saved.profiles.length ? "home" : "onboarding-language");
+      setView(openSettings && saved.profiles.length ? "settings" : saved.profiles.length ? "home" : "onboarding-language");
+      const auth = params.get("auth");
+      if (auth === "connecte" || auth === "erreur") {
+        setNotice(auth === "connecte" ? "Compte Google connecté" : "La connexion Google n’a pas abouti");
+        noticeTimer.current = window.setTimeout(() => setNotice(""), 3_000);
+      }
+      if (openSettings) window.history.replaceState({}, "", window.location.pathname);
       setLoading(false);
+      void mergeFromCloud(saved).then(async (merged) => {
+        if (JSON.stringify(merged) === JSON.stringify(saved)) return;
+        setState(merged);
+        await storageRepository.saveState(merged);
+      });
     });
     return () => window.clearTimeout(noticeTimer.current);
   }, []);
+
+  useEffect(() => {
+    if (!activeProfileId) return;
+    let cancelled = false;
+    fetch("/api/auth/status", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((payload: { authenticated?: boolean }) => { if (!cancelled) setAuthenticated(Boolean(payload.authenticated)); })
+      .catch(() => { if (!cancelled) setAuthenticated(undefined); });
+    return () => { cancelled = true; };
+  }, [activeProfileId]);
 
   useEffect(() => {
     const timer = window.setTimeout(
@@ -521,7 +602,7 @@ export default function BibataApp() {
   }, [planning]);
 
   useEffect(() => {
-    if (loading || !profile || profile.learningPlan || !pwa.isOnline) return;
+    if (loading || !profile || profile.learningPlan || !pwa.isOnline || (profile.completedMissionIds.length > 0 && authenticated !== true)) return;
     const attemptKey = `${profile.id}-${profile.estimatedLevel ?? "A1"}`;
     if (migrationAttempts.current.has(attemptKey)) return;
     migrationAttempts.current.add(attemptKey);
@@ -547,7 +628,7 @@ export default function BibataApp() {
       }
     };
     void migrate();
-  }, [loading, profile, pwa.isOnline]);
+  }, [authenticated, loading, profile, pwa.isOnline]);
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "instant" });
@@ -626,8 +707,25 @@ export default function BibataApp() {
     nextMissionRequest.current = request;
     return request;
   }
+  const requireAccountForProgress = async () => {
+    if (!profile?.completedMissionIds.length) return true;
+    try {
+      const response = await fetch("/api/auth/status", { cache: "no-store" });
+      const payload = await response.json() as { authenticated?: boolean };
+      if (payload.authenticated) {
+        setAuthenticated(true);
+        return true;
+      }
+    } catch {
+      // Le dialogue explique l’étape suivante même si la vérification réseau échoue.
+    }
+    setAuthenticated(false);
+    setAccountRequiredOpen(true);
+    return false;
+  };
   const startMission = async () => {
     if (!profile) return;
+    if (!await requireAccountForProgress()) return;
     const unfinished = levelMissions.filter((mission) => !profile.completedMissionIds.includes(mission.id));
     let nextMission: Mission | undefined = unfinished[0];
     if (!nextMission) nextMission = await extendPersonalPlan(profile, "foreground");
@@ -637,6 +735,7 @@ export default function BibataApp() {
   };
   const changeLevel = async (level: CEFRLevel) => {
     if (!profile) return;
+    if (!await requireAccountForProgress()) return;
     if (!pwa.isOnline) { setPlanIssue(getPlanErrorMessage(undefined, false)); notify("Connexion nécessaire pour changer de parcours"); return; }
     setPlanning({ mode: "foreground", task: "recompose" });
     setPlanIssue("");
@@ -660,6 +759,7 @@ export default function BibataApp() {
   };
   const recomposePlan = async () => {
     if (!profile || planningPlan) return;
+    if (!await requireAccountForProgress()) return;
     if (!pwa.isOnline) { setPlanIssue(getPlanErrorMessage(undefined, false)); return; }
     setPlanning({ mode: "foreground", task: "recompose" });
     setPlanIssue("");
@@ -693,6 +793,7 @@ export default function BibataApp() {
     const nextState: PersistedState = { ...saved, mastery: nextMastery, profiles: saved.profiles.map((item) => item.id === latestProfile.id ? nextProfile : item), missionProgress: { ...saved.missionProgress, [activeMission.id]: { missionId: activeMission.id, status: "completed", score: score.total, completedAt: Date.now() } } };
     setState(nextState);
     await storageRepository.saveState(nextState);
+    void fetch("/api/billing/activity", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ missionId: activeMission.id }), keepalive: true }).catch(() => undefined);
     setView("home");
     notify("Mission enregistrée");
   };
@@ -721,6 +822,10 @@ export default function BibataApp() {
     window.localStorage.setItem(INSTALL_NUDGE_KEY, String(Date.now()));
     window.dispatchEvent(new Event(INSTALL_NUDGE_EVENT));
   };
+  const dismissAccountNudge = () => {
+    window.localStorage.setItem(ACCOUNT_NUDGE_KEY, String(Date.now()));
+    window.dispatchEvent(new Event(ACCOUNT_NUDGE_EVENT));
+  };
   const installApp = async () => {
     if (pwa.platform === "ios" && !pwa.canInstall) {
       setInstallGuideOpen(true);
@@ -735,11 +840,11 @@ export default function BibataApp() {
   else if (view === "onboarding-language") content = <OnboardingLanguage onChoose={chooseLanguage} />;
   else if (view === "onboarding-level") content = <OnboardingLevel selected={selectedLevel} onBack={() => setView("onboarding-language")} onSelect={setSelectedLevel} onContinue={() => setView("onboarding-interests")} />;
   else if (view === "onboarding-interests") content = <OnboardingInterests loading={planningPlan} error={onboardingPlanError} onBack={() => setView("onboarding-level")} onContinue={(interests) => void finishOnboarding(interests)} />;
-  else if (view === "mission") content = <MissionFlow key={`${activeMission.id}-${profile?.estimatedLevel ?? selectedLevel}`} mission={activeMission} level={profile?.estimatedLevel ?? selectedLevel} isOnline={pwa.isOnline} onEngaged={() => { if (profile?.learningPlan) void extendPersonalPlan(profile); }} onExit={() => setView(profile ? "home" : "onboarding-interests")} onFinish={(attempts, score) => void finishMission(attempts, score)} />;
+  else if (view === "mission") content = <MissionFlow key={`${activeMission.id}-${profile?.estimatedLevel ?? selectedLevel}`} mission={activeMission} level={profile?.estimatedLevel ?? selectedLevel} isOnline={pwa.isOnline} soundEnabled={audio.enabled} onEngaged={() => { if (profile?.learningPlan && authenticated === true) void extendPersonalPlan(profile); }} onExit={() => setView(profile ? "home" : "onboarding-interests")} onFinish={(attempts, score) => void finishMission(attempts, score)} />;
   else if (!profile) content = <OnboardingLanguage onChoose={chooseLanguage} />;
   else if (view === "progress") content = <ProgressScreen profile={profile} availableMissions={levelMissions} masteryCount={learnedCount} onContinue={() => void startMission()} onNavigate={setView} />;
-  else if (view === "settings") content = <SettingsScreen key={`${pwa.isOnline}-${pwa.offlineReady}-${pwa.canInstall}-${pwa.isInstalled}-${pwa.platform}`} profile={profile} pwa={pwa} planningPlan={planningPlan} onInstall={() => void installApp()} onNavigate={setView} onNotify={notify} onResetRequest={() => setResetConfirm(true)} onImport={(value) => void importData(value)} onLevelChange={(level) => void changeLevel(level)} onReplan={() => void recomposePlan()} />;
-  else content = <HomeScreen profile={profile} availableMissions={levelMissions} learnedCount={learnedCount} showInstallNudge={pwa.canSuggestInstall && !installNudgeDismissed && profile.completedMissionIds.length > 0} installPlatform={pwa.platform} offlineReady={pwa.offlineReady} planningPlan={planningPlan} planIssue={effectivePlanIssue} onContinue={() => void startMission()} onRetry={() => void recomposePlan()} onInstall={() => void installApp()} onDismissInstall={dismissInstallNudge} onNavigate={setView} />;
+  else if (view === "settings") content = <SettingsScreen key={`${pwa.isOnline}-${pwa.offlineReady}-${pwa.canInstall}-${pwa.isInstalled}-${pwa.platform}`} profile={profile} billingActiveMissionId={billingActiveMissionId} pwa={pwa} soundEnabled={audio.enabled} planningPlan={planningPlan} onInstall={() => void installApp()} onToggleSound={audio.toggle} onNavigate={setView} onNotify={notify} onResetRequest={() => setResetConfirm(true)} onImport={(value) => void importData(value)} onLevelChange={(level) => void changeLevel(level)} onReplan={() => void recomposePlan()} />;
+  else content = <HomeScreen profile={profile} availableMissions={levelMissions} learnedCount={learnedCount} showInstallNudge={pwa.canSuggestInstall && !installNudgeDismissed} showAccountNudge={profile.completedMissionIds.length > 0 && authenticated === false && !accountNudgeDismissed} installPlatform={pwa.platform} offlineReady={pwa.offlineReady} planningPlan={planningPlan} planIssue={effectivePlanIssue} onContinue={() => void startMission()} onRetry={() => void recomposePlan()} onInstall={() => void installApp()} onDismissInstall={dismissInstallNudge} onDismissAccount={dismissAccountNudge} onNavigate={setView} />;
 
-  return <>{!pwa.isOnline && <div className="network-banner" role="status"><span aria-hidden="true">○</span>Mode hors ligne · les conversations IA nécessitent une connexion</div>}{content}{notice && <Toast message={notice} />}{installGuideOpen && <InstallGuideDialog onClose={() => setInstallGuideOpen(false)} />}{resetConfirm && <ConfirmDialog title="Tout recommencer ?" description="Tous les profils, missions et résultats enregistrés sur cet appareil seront effacés." confirmLabel="Tout effacer" onCancel={() => setResetConfirm(false)} onConfirm={() => void reset()} />}</>;
+  return <>{!pwa.isOnline && <div className="network-banner" role="status"><span aria-hidden="true">○</span>Mode hors ligne · les conversations IA nécessitent une connexion</div>}{content}{notice && <Toast message={notice} />}{installGuideOpen && <InstallGuideDialog onClose={() => setInstallGuideOpen(false)} />}{accountRequiredOpen && <AccountRequiredDialog onClose={() => setAccountRequiredOpen(false)} />}{resetConfirm && <ConfirmDialog title="Tout recommencer ?" description="Tous les profils, missions et résultats enregistrés sur cet appareil seront effacés." confirmLabel="Tout effacer" onCancel={() => setResetConfirm(false)} onConfirm={() => void reset()} />}</>;
 }

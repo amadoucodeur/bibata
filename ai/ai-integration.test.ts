@@ -1,13 +1,14 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { countCompletedConversationTurns } from "@/core/conversation";
 import type { CEFRLevel, ConversationMessage, ConversationScenario, LearningPlan } from "@/types/learning";
-import { POST } from "@/app/api/ai/route";
+import { handleAIRequest } from "@/ai/route-handler";
 import { AIProviderError, MammouthAIProvider } from "./provider";
 
 const originalFetch = globalThis.fetch;
 const originalApiKey = process.env.MAMMOUTH_API_KEY;
 const modelEnvKeys = ["MAMMOUTH_MODEL_BEGINNER", "MAMMOUTH_MODEL_INTERMEDIATE", "MAMMOUTH_MODEL_ADVANCED", "MAMMOUTH_MODEL_PLANNER"] as const;
 const originalModels = Object.fromEntries(modelEnvKeys.map((key) => [key, process.env[key]]));
+const POST = (request: Request) => handleAIRequest(request, async () => ({ id: "test-user" }));
 
 const scenario: ConversationScenario = {
   id: "test-conversation",
@@ -65,6 +66,12 @@ afterEach(() => {
 });
 
 describe("Mammouth route", () => {
+  test("requires an account before generating the next mission", async () => {
+    const response = await handleAIRequest(routeRequest({ action: "generateNextMission", payload: {} }), async () => undefined);
+    expect(response.status).toBe(401);
+    expect(await response.json()).toMatchObject({ code: "ACCOUNT_REQUIRED" });
+  });
+
   test("returns a validated character reply", async () => {
     process.env.MAMMOUTH_API_KEY = "test-key";
     globalThis.fetch = (async () => Response.json({

@@ -1,4 +1,6 @@
 import type { ConceptMastery, LearningProfile, MissionProgress, PersistedState } from "@/types/learning";
+import { deleteCloudLearningState, queueCloudPush } from "@/storage/cloud-sync";
+import { sanitizePersistedState } from "@/storage/state-validation";
 
 const DB_NAME = "bibata";
 const STORE_NAME = "learning-state";
@@ -25,20 +27,7 @@ export interface StorageRepository {
   importJSON(value: string): Promise<PersistedState>;
 }
 
-const parseState = (value: unknown): PersistedState => {
-  if (!value || typeof value !== "object") return structuredClone(emptyState);
-  const candidate = value as Partial<PersistedState>;
-  return {
-    schemaVersion: SCHEMA_VERSION,
-    profiles: Array.isArray(candidate.profiles) ? candidate.profiles : [],
-    mastery: candidate.mastery && typeof candidate.mastery === "object" ? candidate.mastery : {},
-    missionProgress:
-      candidate.missionProgress && typeof candidate.missionProgress === "object"
-        ? candidate.missionProgress
-        : {},
-    activeLanguage: typeof candidate.activeLanguage === "string" ? candidate.activeLanguage : undefined,
-  };
-};
+const parseState = (value: unknown): PersistedState => sanitizePersistedState(value);
 
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -125,6 +114,7 @@ export class IndexedDBStorageRepository implements StorageRepository {
       }
     });
     await this.writeQueue;
+    queueCloudPush(snapshot);
   }
 
   async getLearningProfiles() {
@@ -155,6 +145,7 @@ export class IndexedDBStorageRepository implements StorageRepository {
   }
 
   async reset() {
+    deleteCloudLearningState();
     await this.saveState(structuredClone(emptyState));
   }
 
