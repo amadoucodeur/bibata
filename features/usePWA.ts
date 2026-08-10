@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { detectInstallPlatform, type InstallPlatform } from "@/features/pwa-platform";
 
 interface BeforeInstallPromptEvent extends Event {
   prompt(): Promise<void>;
@@ -43,6 +44,22 @@ function getStandaloneServerSnapshot() {
   return false;
 }
 
+function subscribeToPlatform() {
+  return () => undefined;
+}
+
+function getPlatformSnapshot(): InstallPlatform {
+  return detectInstallPlatform({
+    userAgent: navigator.userAgent,
+    platform: navigator.platform,
+    maxTouchPoints: navigator.maxTouchPoints,
+  });
+}
+
+function getPlatformServerSnapshot(): InstallPlatform {
+  return "unknown";
+}
+
 export function usePWA() {
   const installPrompt = useRef<BeforeInstallPromptEvent | null>(null);
   const isOnline = useSyncExternalStore(subscribeToNetwork, getNetworkSnapshot, getNetworkServerSnapshot);
@@ -50,6 +67,7 @@ export function usePWA() {
   const [canInstall, setCanInstall] = useState(false);
   const [installedByPrompt, setInstalledByPrompt] = useState(false);
   const [offlineReady, setOfflineReady] = useState(false);
+  const platform = useSyncExternalStore(subscribeToPlatform, getPlatformSnapshot, getPlatformServerSnapshot);
   const isInstalled = isStandalone || installedByPrompt;
 
   useEffect(() => {
@@ -122,5 +140,6 @@ export function usePWA() {
     return false;
   }, []);
 
-  return { canInstall, install, isInstalled, isOnline, offlineReady };
+  const canSuggestInstall = !isInstalled && (canInstall || platform === "ios");
+  return { canInstall, canSuggestInstall, install, isInstalled, isOnline, offlineReady, platform };
 }

@@ -249,9 +249,12 @@ body { line-height: 1.45; overscroll-behavior-y: none; }
 .availability-card > span { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 13px; background: var(--mint-light); color: var(--forest); }
 .availability-card strong { font-size: 13px; }
 .availability-card p { margin: 4px 0 0; color: var(--ink-soft); font-size: 11px; line-height: 1.45; }
-.install-card { width: 100%; min-height: 68px; display: grid; grid-template-columns: 42px 1fr 24px; gap: 11px; align-items: center; padding: 10px 13px; border: 1px solid #b99ac7; border-radius: 18px; background: var(--mint-light); color: var(--forest); text-align: left; }
-.install-card > span { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 13px; background: var(--forest); color: white; font-size: 20px; }
-.install-card div { display: grid; gap: 3px; }.install-card strong { font-size: 13px; }.install-card small { font-size: 10px; opacity: .72; }.install-card i { font-style: normal; font-size: 19px; }
+.install-card { width: 100%; min-height: 92px; position: relative; display: grid; grid-template-columns: 56px 1fr; gap: 12px; align-items: center; padding: 12px 36px 12px 10px; border: 1px solid #b99ac7; border-radius: 19px 19px 19px 7px; background: linear-gradient(135deg, var(--mint-light), #f8eadc); color: var(--forest); text-align: left; box-shadow: 0 9px 25px rgba(48,33,66,.06); }
+.install-mascot { width: 54px; height: 64px; align-self: end; display: block; overflow: hidden; border-radius: 27px 27px 17px 17px; background: rgba(255,255,255,.46); }
+.install-mascot img { width: 54px; height: 54px; margin-top: 8px; display: block; object-fit: cover; }
+.install-card > div { min-width: 0; display: grid; gap: 3px; }.install-card strong { font-size: 13px; }.install-card small { color: var(--ink-soft); font-size: 10px; line-height: 1.38; }
+.install-card .install-dismiss { width: 28px; height: 28px; position: absolute; top: 7px; right: 7px; display: grid; place-items: center; border: 0; border-radius: 50%; background: rgba(74,53,104,.07); color: var(--ink-soft); font-size: 18px; }
+.install-card .install-action { width: max-content; min-height: 31px; margin-top: 4px; display: inline-flex; align-items: center; gap: 7px; padding: 0 10px; border: 0; border-radius: 10px; background: var(--forest); color: white; font-size: 9px; font-weight: 800; }.install-action span { font-size: 14px; }
 
 .bottom-nav { position: fixed; left: 50%; right: auto; width: 100%; max-width: 430px; transform: translateX(-50%); box-shadow: 0 -10px 30px rgba(48,33,66,.04); }
 .bottom-nav button { min-height: 52px; border-radius: 14px; }
@@ -311,6 +314,11 @@ body { line-height: 1.45; overscroll-behavior-y: none; }
 .confirm-dialog h2 { margin: 18px 0 6px; font-family: var(--font-fraunces), serif; font-size: 25px; }
 .confirm-dialog p { margin: 0; color: var(--ink-soft); font-size: 13px; line-height: 1.5; }
 .confirm-dialog > div { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 22px; }
+.install-guide-dialog { width: 100%; max-width: 390px; position: relative; padding: 30px 22px 22px; border-radius: 27px; background: var(--white); color: var(--ink); box-shadow: 0 24px 70px rgba(43,32,51,.28); animation: dialog-in .22s ease both; }
+.install-guide-avatar { width: 72px; height: 72px; display: block; margin: -6px 0 19px; overflow: hidden; border-radius: 50% 50% 43% 43%; background: linear-gradient(145deg, #e9d8ee, #f5e8d2); }.install-guide-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.install-guide-dialog h2 { margin: 0; font-family: var(--font-fraunces), serif; font-size: 28px; line-height: 1.08; }
+.install-guide-dialog > p:not(.eyebrow) { margin: 10px 0 18px; color: var(--ink-soft); font-size: 12px; line-height: 1.5; }
+.install-guide-dialog ol { display: grid; gap: 9px; margin: 0 0 22px; padding: 0; list-style: none; }.install-guide-dialog li { min-height: 46px; display: grid; grid-template-columns: 31px 1fr; gap: 9px; align-items: center; padding: 7px 10px; border: 1px solid var(--line); border-radius: 14px; background: var(--paper); font-size: 11px; }.install-guide-dialog li > span { width: 29px; height: 29px; display: grid; place-items: center; border-radius: 10px; background: var(--mint-light); color: var(--forest); font-weight: 900; }
 @keyframes dialog-in { from { opacity: 0; transform: translateY(12px); } }
 .loading-screen p { margin: 0; color: var(--ink-soft); font-size: 12px; }
 

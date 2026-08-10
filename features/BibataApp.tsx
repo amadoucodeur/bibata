@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import mascotAvatar from "@/public/brand/bibata-avatar.webp";
 import logoMark from "@/public/brand/bibata-logo-d.png";
 import mascot from "@/public/brand/bibata-mascot.webp";
@@ -12,6 +12,7 @@ import { buildMissionsFromPlan, getMissionsForProfile } from "@/core/personaliza
 import { getConcept, getTrackMeta, interestOptions, languages, missions, roadmap } from "@/data/curriculum";
 import { emptyState, storageRepository } from "@/storage/repository";
 import { usePWA } from "@/features/usePWA";
+import type { InstallPlatform } from "@/features/pwa-platform";
 import {
   CEFR_LEVELS,
   type CEFRLevel,
@@ -28,6 +29,28 @@ type View = "onboarding-language" | "onboarding-level" | "onboarding-interests" 
 type MissionStage = "intro" | "discover" | "context" | "exercise" | "conversation" | "result";
 type PlanningTask = "first-plan" | "recompose" | "next-mission" | "migration";
 type PlanningState = { mode: "foreground" | "background"; task: PlanningTask } | null;
+
+const INSTALL_NUDGE_KEY = "bibata-install-nudge-dismissed-at";
+const INSTALL_NUDGE_SNOOZE_MS = 30 * 24 * 60 * 60_000;
+const INSTALL_NUDGE_EVENT = "bibata-install-nudge-change";
+
+function subscribeToInstallNudge(callback: () => void) {
+  window.addEventListener("storage", callback);
+  window.addEventListener(INSTALL_NUDGE_EVENT, callback);
+  return () => {
+    window.removeEventListener("storage", callback);
+    window.removeEventListener(INSTALL_NUDGE_EVENT, callback);
+  };
+}
+
+function getInstallNudgeSnapshot() {
+  const dismissedAt = Number(window.localStorage.getItem(INSTALL_NUDGE_KEY));
+  return Number.isFinite(dismissedAt) && Date.now() - dismissedAt < INSTALL_NUDGE_SNOOZE_MS;
+}
+
+function getInstallNudgeServerSnapshot() {
+  return true;
+}
 
 const initialAbility = { vocabulary: 0.12, grammar: 0.1, comprehension: 0.14, recall: 0.08, production: 0.06 };
 const normalizeAnswer = (value: string) => value.toLowerCase().replace(/[.!?,’']/g, "").replace(/\s+/g, " ").trim();
@@ -133,6 +156,17 @@ function ConfirmDialog({ title, description, confirmLabel, onCancel, onConfirm }
   return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}><section className="confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-description"><span className="dialog-mark" aria-hidden="true">!</span><h2 id="confirm-title">{title}</h2><p id="confirm-description">{description}</p><div><button ref={cancelRef} className="secondary-button" type="button" onClick={onCancel}>Continuer</button><button className="danger-button" type="button" onClick={onConfirm}>{confirmLabel}</button></div></section></div>;
 }
 
+function InstallGuideDialog({ onClose }: { onClose: () => void }) {
+  const closeRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    closeRef.current?.focus();
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [onClose]);
+  return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="install-guide-dialog" role="dialog" aria-modal="true" aria-labelledby="install-guide-title"><span className="install-guide-avatar" aria-hidden="true"><Image src={mascotAvatar} alt="" sizes="72px" /></span><p className="eyebrow">Sur iPhone et iPad</p><h2 id="install-guide-title">Garde Bibata à portée de main</h2><p>Apple ne montre pas toujours un bouton d’installation. Il suffit de suivre ces trois étapes :</p><ol><li><span>1</span>Ouvre le menu <strong>Partager</strong> de ton navigateur.</li><li><span>2</span>Choisis <strong>Sur l’écran d’accueil</strong>.</li><li><span>3</span>Appuie sur <strong>Ajouter</strong>.</li></ol><button ref={closeRef} className="primary-button" type="button" onClick={onClose}>J’ai compris <span>✓</span></button></section></div>;
+}
+
 function OnboardingLanguage({ onChoose }: { onChoose: (code: string) => void }) {
   return <main className="onboarding-shell page-enter">
     <header className="onboarding-header"><Logo /><span className="step-count">1 sur 3</span></header>
@@ -188,7 +222,7 @@ function AppHeader({ completedCount }: { completedCount: number }) {
   return <header className="app-header"><Logo /><span className="completion-badge" aria-label={`${completedCount} mission${completedCount > 1 ? "s" : ""} terminée${completedCount > 1 ? "s" : ""}`}><span aria-hidden="true">✓</span>{completedCount}</span></header>;
 }
 
-function HomeScreen({ profile, availableMissions, learnedCount, canInstall, offlineReady, planningPlan, planIssue, onContinue, onRetry, onInstall, onNavigate }: { profile: LearningProfile; availableMissions: Mission[]; learnedCount: number; canInstall: boolean; offlineReady: boolean; planningPlan: boolean; planIssue: string; onContinue: () => void; onRetry: () => void; onInstall: () => void; onNavigate: (view: View) => void }) {
+function HomeScreen({ profile, availableMissions, learnedCount, showInstallNudge, installPlatform, offlineReady, planningPlan, planIssue, onContinue, onRetry, onInstall, onDismissInstall, onNavigate }: { profile: LearningProfile; availableMissions: Mission[]; learnedCount: number; showInstallNudge: boolean; installPlatform: InstallPlatform; offlineReady: boolean; planningPlan: boolean; planIssue: string; onContinue: () => void; onRetry: () => void; onInstall: () => void; onDismissInstall: () => void; onNavigate: (view: View) => void }) {
   const currentLevel = profile.estimatedLevel ?? "A1";
   const nextMission = availableMissions.find((mission) => !profile.completedMissionIds.includes(mission.id));
   const completed = availableMissions.filter((mission) => profile.completedMissionIds.includes(mission.id)).length;
@@ -200,6 +234,11 @@ function HomeScreen({ profile, availableMissions, learnedCount, canInstall, offl
   const trackMeta = profile.learningPlan?.level === currentLevel
     ? { title: profile.learningPlan.title, eyebrow: profile.learningPlan.focus }
     : getTrackMeta(currentLevel);
+  const installCopy = installPlatform === "ios"
+    ? { title: "Garde Bibata sur ton écran", description: "Sur iPhone ou iPad, ajoute-la depuis le menu Partager.", action: "Voir comment" }
+    : installPlatform === "android"
+      ? { title: "Emporte Bibata avec toi", description: offlineReady ? "Accès rapide et interface disponible hors ligne." : "Installe-la comme une vraie application Android.", action: "Installer" }
+      : { title: "Ouvre Bibata comme une app", description: "Un accès direct, sans chercher l’onglet du navigateur.", action: "Installer" };
   return <main className="app-shell page-enter"><AppHeader completedCount={completed} />
     <section className="greeting"><p>Bonjour <span aria-hidden="true">👋</span></p><h1>{completed ? "On garde le rythme ?" : firstMissionGreetings[currentLevel]}</h1></section>
     {(planningPlan || planIssue) && <section className={`plan-status-card ${planIssue ? "error" : ""}`} role={planIssue ? "alert" : "status"}><span aria-hidden="true">✦</span><div><strong>{planningPlan ? "Bibata prépare la suite…" : "La prochaine mission attend"}</strong><p>{planningPlan ? "Ton fil reste le même pendant qu’une nouvelle situation se compose discrètement." : planIssue}</p></div>{planIssue && <button type="button" onClick={onRetry}>Réessayer</button>}</section>}
@@ -211,7 +250,7 @@ function HomeScreen({ profile, availableMissions, learnedCount, canInstall, offl
       <div className="home-side">
         <section className="today-strip"><div className="mini-ring" style={ringStyle}><strong>{completedInWorld}</strong><small>✓</small></div><div><strong>{trackMeta.title}</strong><p>{completed ? "La suite évolue avec toi" : trackMeta.eyebrow}</p></div></section>
         <section className="availability-card"><span aria-hidden="true">✦</span><div><strong>Des sessions courtes, sans pression</strong><p>Une mission suffit pour avancer. Ta progression est enregistrée automatiquement.</p></div></section>
-        {canInstall && <button type="button" className="install-card" onClick={onInstall}><span aria-hidden="true">↓</span><div><strong>Installer Bibata</strong><small>{offlineReady ? "Accès rapide et interface disponible hors ligne" : "Retrouve Bibata comme une application"}</small></div><i aria-hidden="true">→</i></button>}
+        {showInstallNudge && <aside className="install-card" aria-label="Installer Bibata"><button type="button" className="install-dismiss" onClick={onDismissInstall} aria-label="Me le rappeler plus tard">×</button><span className="install-mascot" aria-hidden="true"><Image src={mascotAvatar} alt="" sizes="54px" /></span><div><strong>{installCopy.title}</strong><small>{installCopy.description}</small><button type="button" className="install-action" onClick={onInstall}>{installCopy.action} <span aria-hidden="true">→</span></button></div></aside>}
       </div>
     </div>
     <BottomNav active="home" onNavigate={onNavigate} />
@@ -242,9 +281,11 @@ function ProgressScreen({ profile, availableMissions, masteryCount, onContinue, 
 
 interface PWAStatus {
   canInstall: boolean;
+  canSuggestInstall: boolean;
   isInstalled: boolean;
   isOnline: boolean;
   offlineReady: boolean;
+  platform: InstallPlatform;
 }
 
 function SettingsScreen({ profile, pwa, planningPlan, onInstall, onNavigate, onNotify, onResetRequest, onImport, onLevelChange, onReplan }: { profile: LearningProfile; pwa: PWAStatus; planningPlan: boolean; onInstall: () => void; onNavigate: (view: View) => void; onNotify: (message: string) => void; onResetRequest: () => void; onImport: (value: string) => void; onLevelChange: (level: CEFRLevel) => void; onReplan: () => void }) {
@@ -261,12 +302,13 @@ function SettingsScreen({ profile, pwa, planningPlan, onInstall, onNavigate, onN
     URL.revokeObjectURL(link.href);
     onNotify("Sauvegarde téléchargée");
   };
-  const installDescription = pwa.isInstalled ? "Bibata est déjà installée" : pwa.canInstall ? "Ajoute Bibata à ton écran d’accueil" : "Disponible depuis le menu de ton navigateur";
+  const installAvailable = pwa.canInstall || pwa.platform === "ios";
+  const installDescription = pwa.isInstalled ? "Bibata est déjà installée" : pwa.platform === "ios" ? "Partager, puis Sur l’écran d’accueil" : pwa.canInstall ? "Ajoute Bibata à ton écran d’accueil" : "Disponible depuis le menu de ton navigateur";
   return <main className="app-shell page-enter"><AppHeader completedCount={completedCount} /><section className="page-heading"><p className="eyebrow">Ton expérience</p><h1>Réglages</h1><p>Personnalise Bibata et garde le contrôle sur tes données.</p></section>
     <div className="settings-layout">
       <div>
         <section className="settings-group"><h2>Apprentissage</h2><label className="level-setting"><span className="settings-icon">Aa</span><div><strong>Niveau du parcours</strong><small>{levelDescriptions[currentLevel]} · contenu, difficulté et modèle adaptés</small></div><select value={currentLevel} disabled={planningPlan} onChange={(event) => onLevelChange(event.target.value as CEFRLevel)} aria-label="Niveau du parcours">{CEFR_LEVELS.map((level) => <option key={level} value={level}>{level}</option>)}</select></label><button className="settings-row" type="button" onClick={onReplan} disabled={planningPlan}><span className="settings-icon">✦</span><div><strong>{planningPlan ? "Composition en cours…" : "Recomposer mon parcours"}</strong><small>{profile.learningPlan?.focus ?? "Créer un itinéraire lié à tes intérêts"}</small></div><i aria-hidden="true">↻</i></button></section>
-        <section className="settings-group"><h2>Application</h2><button className="settings-row" type="button" onClick={onInstall} disabled={!pwa.canInstall || pwa.isInstalled}><span className="settings-icon">↓</span><div><strong>Installer Bibata</strong><small>{installDescription}</small></div><i aria-hidden="true">{pwa.isInstalled ? "✓" : "›"}</i></button><div className="settings-static-row"><span className={`settings-icon ${pwa.isOnline ? "online" : "offline"}`}>●</span><div><strong>{pwa.isOnline ? "Connexion disponible" : "Mode hors ligne"}</strong><small>{pwa.offlineReady ? "L’interface reste accessible hors ligne" : "Une connexion est nécessaire pour discuter avec Bibata"}</small></div><i aria-hidden="true">{pwa.isOnline ? "✓" : "—"}</i></div></section>
+        <section className="settings-group"><h2>Application</h2><button className="settings-row" type="button" onClick={onInstall} disabled={!installAvailable || pwa.isInstalled}><span className="settings-icon">↓</span><div><strong>Installer Bibata</strong><small>{installDescription}</small></div><i aria-hidden="true">{pwa.isInstalled ? "✓" : "›"}</i></button><div className="settings-static-row"><span className={`settings-icon ${pwa.isOnline ? "online" : "offline"}`}>●</span><div><strong>{pwa.isOnline ? "Connexion disponible" : "Mode hors ligne"}</strong><small>{pwa.offlineReady ? "L’interface reste accessible hors ligne" : "Une connexion est nécessaire pour discuter avec Bibata"}</small></div><i aria-hidden="true">{pwa.isOnline ? "✓" : "—"}</i></div></section>
       </div>
       <div>
         <section className="settings-group"><h2>Tes données</h2><button className="settings-row" type="button" onClick={() => void exportData()}><span className="settings-icon">⇩</span><div><strong>Exporter mes données</strong><small>Télécharger une sauvegarde JSON</small></div><i aria-hidden="true">›</i></button><button className="settings-row" type="button" onClick={() => importRef.current?.click()}><span className="settings-icon">⇧</span><div><strong>Importer une sauvegarde</strong><small>Restaurer une progression Bibata</small></div><i aria-hidden="true">›</i></button><input ref={importRef} hidden type="file" accept="application/json" onChange={async (event) => { const file = event.target.files?.[0]; if (file) onImport(await file.text()); event.target.value = ""; }} /></section>
@@ -438,6 +480,7 @@ export default function BibataApp() {
   const [resetConfirm, setResetConfirm] = useState(false);
   const [planning, setPlanning] = useState<PlanningState>(null);
   const [showPlanningScreen, setShowPlanningScreen] = useState(false);
+  const [installGuideOpen, setInstallGuideOpen] = useState(false);
   const [onboardingPlanError, setOnboardingPlanError] = useState("");
   const [planIssue, setPlanIssue] = useState("");
   const noticeTimer = useRef<number | undefined>(undefined);
@@ -445,6 +488,7 @@ export default function BibataApp() {
   const nextMissionRequest = useRef<Promise<Mission | undefined> | null>(null);
   const onboardingSeed = useRef("");
   const pwa = usePWA();
+  const installNudgeDismissed = useSyncExternalStore(subscribeToInstallNudge, getInstallNudgeSnapshot, getInstallNudgeServerSnapshot);
   const planningPlan = planning !== null;
   const profile = state.profiles.find((item) => item.language === (state.activeLanguage ?? "en"));
   const currentLevel = profile?.estimatedLevel ?? selectedLevel;
@@ -673,7 +717,17 @@ export default function BibataApp() {
       notify("Cette sauvegarde n’est pas valide");
     }
   };
-  const installApp = async () => { if (await pwa.install()) notify("Bibata a été ajoutée à ton appareil"); };
+  const dismissInstallNudge = () => {
+    window.localStorage.setItem(INSTALL_NUDGE_KEY, String(Date.now()));
+    window.dispatchEvent(new Event(INSTALL_NUDGE_EVENT));
+  };
+  const installApp = async () => {
+    if (pwa.platform === "ios" && !pwa.canInstall) {
+      setInstallGuideOpen(true);
+      return;
+    }
+    if (await pwa.install()) notify("Bibata a été ajoutée à ton appareil");
+  };
 
   let content: ReactNode;
   if (loading) content = <main className="loading-screen"><Logo /><span className="loading-dot" /><p>Ouverture de Bibata…</p></main>;
@@ -684,8 +738,8 @@ export default function BibataApp() {
   else if (view === "mission") content = <MissionFlow key={`${activeMission.id}-${profile?.estimatedLevel ?? selectedLevel}`} mission={activeMission} level={profile?.estimatedLevel ?? selectedLevel} isOnline={pwa.isOnline} onEngaged={() => { if (profile?.learningPlan) void extendPersonalPlan(profile); }} onExit={() => setView(profile ? "home" : "onboarding-interests")} onFinish={(attempts, score) => void finishMission(attempts, score)} />;
   else if (!profile) content = <OnboardingLanguage onChoose={chooseLanguage} />;
   else if (view === "progress") content = <ProgressScreen profile={profile} availableMissions={levelMissions} masteryCount={learnedCount} onContinue={() => void startMission()} onNavigate={setView} />;
-  else if (view === "settings") content = <SettingsScreen key={`${pwa.isOnline}-${pwa.offlineReady}-${pwa.canInstall}-${pwa.isInstalled}`} profile={profile} pwa={pwa} planningPlan={planningPlan} onInstall={() => void installApp()} onNavigate={setView} onNotify={notify} onResetRequest={() => setResetConfirm(true)} onImport={(value) => void importData(value)} onLevelChange={(level) => void changeLevel(level)} onReplan={() => void recomposePlan()} />;
-  else content = <HomeScreen profile={profile} availableMissions={levelMissions} learnedCount={learnedCount} canInstall={pwa.canInstall} offlineReady={pwa.offlineReady} planningPlan={planningPlan} planIssue={effectivePlanIssue} onContinue={() => void startMission()} onRetry={() => void recomposePlan()} onInstall={() => void installApp()} onNavigate={setView} />;
+  else if (view === "settings") content = <SettingsScreen key={`${pwa.isOnline}-${pwa.offlineReady}-${pwa.canInstall}-${pwa.isInstalled}-${pwa.platform}`} profile={profile} pwa={pwa} planningPlan={planningPlan} onInstall={() => void installApp()} onNavigate={setView} onNotify={notify} onResetRequest={() => setResetConfirm(true)} onImport={(value) => void importData(value)} onLevelChange={(level) => void changeLevel(level)} onReplan={() => void recomposePlan()} />;
+  else content = <HomeScreen profile={profile} availableMissions={levelMissions} learnedCount={learnedCount} showInstallNudge={pwa.canSuggestInstall && !installNudgeDismissed && profile.completedMissionIds.length > 0} installPlatform={pwa.platform} offlineReady={pwa.offlineReady} planningPlan={planningPlan} planIssue={effectivePlanIssue} onContinue={() => void startMission()} onRetry={() => void recomposePlan()} onInstall={() => void installApp()} onDismissInstall={dismissInstallNudge} onNavigate={setView} />;
 
-  return <>{!pwa.isOnline && <div className="network-banner" role="status"><span aria-hidden="true">○</span>Mode hors ligne · les conversations IA nécessitent une connexion</div>}{content}{notice && <Toast message={notice} />}{resetConfirm && <ConfirmDialog title="Tout recommencer ?" description="Tous les profils, missions et résultats enregistrés sur cet appareil seront effacés." confirmLabel="Tout effacer" onCancel={() => setResetConfirm(false)} onConfirm={() => void reset()} />}</>;
+  return <>{!pwa.isOnline && <div className="network-banner" role="status"><span aria-hidden="true">○</span>Mode hors ligne · les conversations IA nécessitent une connexion</div>}{content}{notice && <Toast message={notice} />}{installGuideOpen && <InstallGuideDialog onClose={() => setInstallGuideOpen(false)} />}{resetConfirm && <ConfirmDialog title="Tout recommencer ?" description="Tous les profils, missions et résultats enregistrés sur cet appareil seront effacés." confirmLabel="Tout effacer" onCancel={() => setResetConfirm(false)} onConfirm={() => void reset()} />}</>;
 }
