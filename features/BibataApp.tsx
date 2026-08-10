@@ -14,7 +14,7 @@ import { getContextVisual } from "@/data/context-visuals";
 import { emptyState, storageRepository } from "@/storage/repository";
 import { mergeFromCloud } from "@/storage/cloud-sync";
 import { usePWA } from "@/features/usePWA";
-import type { InstallPlatform } from "@/features/pwa-platform";
+import { getInstallInviteCopy, getManualInstallGuide, type InstallPlatform } from "@/features/pwa-platform";
 import { playUISound, speakText, useAudio } from "@/features/audio";
 import { parseMessageText } from "@/features/message-format";
 import { BillingPanel } from "@/features/BillingPanel";
@@ -177,15 +177,16 @@ function ConfirmDialog({ title, description, confirmLabel, onCancel, onConfirm }
   return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}><section className="confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-description"><span className="dialog-mark" aria-hidden="true">!</span><h2 id="confirm-title">{title}</h2><p id="confirm-description">{description}</p><div><button ref={cancelRef} className="secondary-button" type="button" onClick={onCancel}>Continuer</button><button className="danger-button" type="button" onClick={onConfirm}>{confirmLabel}</button></div></section></div>;
 }
 
-function InstallGuideDialog({ onClose }: { onClose: () => void }) {
+function InstallGuideDialog({ platform, onClose }: { platform: InstallPlatform; onClose: () => void }) {
   const closeRef = useRef<HTMLButtonElement>(null);
+  const guide = getManualInstallGuide(platform);
   useEffect(() => {
     closeRef.current?.focus();
     const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [onClose]);
-  return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="install-guide-dialog" role="dialog" aria-modal="true" aria-labelledby="install-guide-title"><span className="install-guide-avatar" aria-hidden="true"><Image src={mascotAvatar} alt="" sizes="72px" /></span><p className="eyebrow">Sur iPhone et iPad</p><h2 id="install-guide-title">Garde Bibata à portée de main</h2><p>Apple ne montre pas toujours un bouton d’installation. Il suffit de suivre ces trois étapes :</p><ol><li><span>1</span>Ouvre le menu <strong>Partager</strong> de ton navigateur.</li><li><span>2</span>Choisis <strong>Sur l’écran d’accueil</strong>.</li><li><span>3</span>Appuie sur <strong>Ajouter</strong>.</li></ol><button ref={closeRef} className="primary-button" type="button" onClick={onClose}>J’ai compris <span>✓</span></button></section></div>;
+  return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="install-guide-dialog" role="dialog" aria-modal="true" aria-labelledby="install-guide-title"><span className="install-guide-avatar" aria-hidden="true"><Image src={mascotAvatar} alt="" sizes="72px" /></span><p className="eyebrow">{guide.eyebrow}</p><h2 id="install-guide-title">{guide.title}</h2><p>{guide.description}</p><ol>{guide.steps.map((step, index) => <li key={step}><span>{index + 1}</span>{step}</li>)}</ol><button ref={closeRef} className="primary-button" type="button" onClick={onClose}>J’ai compris <span>✓</span></button></section></div>;
 }
 
 function AccountRequiredDialog({ onClose }: { onClose: () => void }) {
@@ -199,9 +200,11 @@ function AccountRequiredDialog({ onClose }: { onClose: () => void }) {
   return <div className="dialog-backdrop" role="presentation"><section className="account-required-dialog" role="dialog" aria-modal="true" aria-labelledby="account-required-title" aria-describedby="account-required-description"><span className="account-required-avatar" aria-hidden="true"><Image src={mascotAvatar} alt="" sizes="78px" /></span><p className="eyebrow">Première mission terminée</p><h2 id="account-required-title">Connecte-toi pour continuer</h2><p id="account-required-description">Ta première mission reste gratuite et enregistrée sur cet appareil. Un compte Google est maintenant nécessaire pour débloquer la suite et protéger ta progression.</p><a ref={connectRef} href="/auth/google?next=/">Continuer avec Google <span aria-hidden="true">→</span></a><button type="button" onClick={onClose}>Revenir à l’accueil</button></section></div>;
 }
 
-function OnboardingLanguage({ onChoose }: { onChoose: (code: string) => void }) {
+function OnboardingLanguage({ showInstallInvite, installPlatform, canInstall, onInstall, onChoose }: { showInstallInvite: boolean; installPlatform: InstallPlatform; canInstall: boolean; onInstall: () => void; onChoose: (code: string) => void }) {
+  const installCopy = getInstallInviteCopy(installPlatform, canInstall);
   return <main className="onboarding-shell page-enter">
     <header className="onboarding-header"><Logo /><span className="step-count">1 sur 3</span></header>
+    {showInstallInvite && <button className="onboarding-install-card" type="button" onClick={onInstall} aria-label={`${installCopy.title}. ${installCopy.action}`}><span className="onboarding-install-avatar" aria-hidden="true"><Image src={mascotAvatar} alt="" sizes="58px" /></span><span className="onboarding-install-copy"><small>Bibata sur ton appareil</small><strong>{installCopy.title}</strong><span>Accès rapide · plein écran · toujours à portée</span></span><span className="onboarding-install-action" aria-hidden="true">{installCopy.action}<b>→</b></span></button>}
     <section className="onboarding-copy"><p className="eyebrow">Commençons simplement</p><h1>Quelle langue<br />veux-tu vivre ?</h1><p>Choisis ton premier parcours. Chaque langue gardera ensuite sa propre progression.</p></section>
     <div className="language-list" role="list">
       {languages.map((language, index) => <button type="button" className={`language-option ${index === 0 ? "active" : ""}`} key={language.code} onClick={() => onChoose(language.code)} disabled={language.availability === "preview"}>
@@ -834,24 +837,26 @@ export default function BibataApp() {
     window.dispatchEvent(new Event(ACCOUNT_NUDGE_EVENT));
   };
   const installApp = async () => {
-    if (pwa.platform === "ios" && !pwa.canInstall) {
+    if (!pwa.canInstall) {
       setInstallGuideOpen(true);
       return;
     }
     if (await pwa.install()) notify("Bibata a été ajoutée à ton appareil");
   };
 
+  const showOnboardingInstallInvite = !pwa.isInstalled;
+
   let content: ReactNode;
   if (loading) content = <main className="loading-screen"><Logo /><span className="loading-dot" /><p>Ouverture de Bibata…</p></main>;
   else if (planning?.mode === "foreground" && showPlanningScreen) content = <AIWaitingScreen task={planning.task} level={currentLevel} />;
-  else if (view === "onboarding-language") content = <OnboardingLanguage onChoose={chooseLanguage} />;
+  else if (view === "onboarding-language") content = <OnboardingLanguage showInstallInvite={showOnboardingInstallInvite} installPlatform={pwa.platform} canInstall={pwa.canInstall} onInstall={() => void installApp()} onChoose={chooseLanguage} />;
   else if (view === "onboarding-level") content = <OnboardingLevel selected={selectedLevel} onBack={() => setView("onboarding-language")} onSelect={setSelectedLevel} onContinue={() => setView("onboarding-interests")} />;
   else if (view === "onboarding-interests") content = <OnboardingInterests loading={planningPlan} error={onboardingPlanError} onBack={() => setView("onboarding-level")} onContinue={(interests) => void finishOnboarding(interests)} />;
   else if (view === "mission") content = <MissionFlow key={`${activeMission.id}-${profile?.estimatedLevel ?? selectedLevel}`} mission={activeMission} level={profile?.estimatedLevel ?? selectedLevel} isOnline={pwa.isOnline} soundEnabled={audio.enabled} onEngaged={() => { if (profile?.learningPlan && authenticated === true) void extendPersonalPlan(profile); }} onExit={() => setView(profile ? "home" : "onboarding-interests")} onFinish={(attempts, score) => void finishMission(attempts, score)} />;
-  else if (!profile) content = <OnboardingLanguage onChoose={chooseLanguage} />;
+  else if (!profile) content = <OnboardingLanguage showInstallInvite={showOnboardingInstallInvite} installPlatform={pwa.platform} canInstall={pwa.canInstall} onInstall={() => void installApp()} onChoose={chooseLanguage} />;
   else if (view === "progress") content = <ProgressScreen profile={profile} availableMissions={levelMissions} masteryCount={learnedCount} onContinue={() => void startMission()} onNavigate={setView} />;
   else if (view === "settings") content = <SettingsScreen key={`${pwa.isOnline}-${pwa.offlineReady}-${pwa.canInstall}-${pwa.isInstalled}-${pwa.platform}`} profile={profile} billingActiveMissionId={billingActiveMissionId} pwa={pwa} soundEnabled={audio.enabled} planningPlan={planningPlan} onInstall={() => void installApp()} onToggleSound={audio.toggle} onNavigate={setView} onNotify={notify} onResetRequest={() => setResetConfirm(true)} onImport={(value) => void importData(value)} onLevelChange={(level) => void changeLevel(level)} onReplan={() => void recomposePlan()} />;
   else content = <HomeScreen profile={profile} availableMissions={levelMissions} learnedCount={learnedCount} showInstallNudge={pwa.canSuggestInstall && !installNudgeDismissed} showAccountNudge={profile.completedMissionIds.length > 0 && authenticated === false && !accountNudgeDismissed} installPlatform={pwa.platform} offlineReady={pwa.offlineReady} planningPlan={planningPlan} planIssue={effectivePlanIssue} onContinue={() => void startMission()} onRetry={() => void recomposePlan()} onInstall={() => void installApp()} onDismissInstall={dismissInstallNudge} onDismissAccount={dismissAccountNudge} onNavigate={setView} />;
 
-  return <>{!pwa.isOnline && <div className="network-banner" role="status"><span aria-hidden="true">○</span>Mode hors ligne · les conversations IA nécessitent une connexion</div>}{content}{notice && <Toast message={notice} />}{installGuideOpen && <InstallGuideDialog onClose={() => setInstallGuideOpen(false)} />}{accountRequiredOpen && <AccountRequiredDialog onClose={() => setAccountRequiredOpen(false)} />}{resetConfirm && <ConfirmDialog title="Tout recommencer ?" description="Tous les profils, missions et résultats enregistrés sur cet appareil seront effacés." confirmLabel="Tout effacer" onCancel={() => setResetConfirm(false)} onConfirm={() => void reset()} />}</>;
+  return <>{!pwa.isOnline && <div className="network-banner" role="status"><span aria-hidden="true">○</span>Mode hors ligne · les conversations IA nécessitent une connexion</div>}{content}{notice && <Toast message={notice} />}{installGuideOpen && <InstallGuideDialog platform={pwa.platform} onClose={() => setInstallGuideOpen(false)} />}{accountRequiredOpen && <AccountRequiredDialog onClose={() => setAccountRequiredOpen(false)} />}{resetConfirm && <ConfirmDialog title="Tout recommencer ?" description="Tous les profils, missions et résultats enregistrés sur cet appareil seront effacés." confirmLabel="Tout effacer" onCancel={() => setResetConfirm(false)} onConfirm={() => void reset()} />}</>;
 }

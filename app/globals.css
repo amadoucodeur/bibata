@@ -62,6 +62,19 @@ button:disabled { cursor: not-allowed; }
 .language-option:disabled .option-arrow { background: transparent; }
 .onboarding-note { margin: 24px 0 0; color: #87918e; text-align: center; font-size: 11px; }
 
+.onboarding-install-card { width: 100%; min-height: 106px; position: relative; display: grid; grid-template-columns: 60px minmax(0, 1fr) auto; gap: 12px; align-items: center; margin: 3px 0 24px; padding: 13px 14px 13px 11px; overflow: hidden; border: 1px solid rgba(255,255,255,.16); border-radius: 21px 21px 21px 7px; background: linear-gradient(135deg, #3d2a54 0%, #5a3f76 64%, #7b557f 100%); color: white; text-align: left; box-shadow: 0 14px 32px rgba(48,33,66,.18); animation: install-card-in .35s ease both; }
+.onboarding-install-card::after { content: ""; width: 102px; height: 102px; position: absolute; right: -58px; bottom: -67px; border: 19px solid rgba(255,255,255,.07); border-radius: 50%; pointer-events: none; }
+.onboarding-install-card:hover { transform: translateY(-2px); box-shadow: 0 17px 38px rgba(48,33,66,.23); }
+.onboarding-install-avatar { width: 58px; height: 72px; display: block; align-self: end; overflow: hidden; border-radius: 29px 29px 18px 18px; background: rgba(255,255,255,.13); }
+.onboarding-install-avatar img { width: 58px; height: 58px; margin-top: 12px; display: block; object-fit: cover; }
+.onboarding-install-copy { min-width: 0; display: grid; gap: 3px; }
+.onboarding-install-copy small { color: #f2cf91; font-size: 8px; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; }
+.onboarding-install-copy strong { font-size: 14px; line-height: 1.25; }
+.onboarding-install-copy > span { color: rgba(255,255,255,.72); font-size: 9px; line-height: 1.35; }
+.onboarding-install-action { position: relative; z-index: 1; display: grid; justify-items: end; gap: 4px; color: #f7daa7; font-size: 9px; font-weight: 900; white-space: nowrap; }
+.onboarding-install-action b { width: 29px; height: 29px; display: grid; place-items: center; border-radius: 50%; background: #f2cf91; color: #352443; font-size: 15px; }
+.onboarding-install-card + .onboarding-copy { margin-top: 0; }
+
 .interest-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 30px; }
 .interest-chip { min-height: 56px; border: 1px solid var(--line); border-radius: 16px; background: var(--white); display: grid; grid-template-columns: 28px 1fr 22px; align-items: center; gap: 4px; padding: 0 12px; text-align: left; font-size: 14px; font-weight: 700; transition: .2s ease; }
 .interest-chip > span { color: var(--forest); font-size: 19px; text-align: center; }
