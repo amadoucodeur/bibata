@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { countCompletedConversationTurns } from "@/core/conversation";
 import type { CEFRLevel, ConversationMessage, ConversationScenario, LearningPlan } from "@/types/learning";
-import { handleAIRequest } from "@/ai/route-handler";
+import { conversationReplyFitsLevel, handleAIRequest } from "@/ai/route-handler";
 import { AIProviderError, MammouthAIProvider } from "./provider";
 
 const originalFetch = globalThis.fetch;
@@ -66,6 +66,29 @@ afterEach(() => {
 });
 
 describe("Mammouth route", () => {
+  test("enforces distinct CEFR limits instead of trusting the model label", () => {
+    expect(conversationReplyFitsLevel("Hi! What is your name?", "A1")).toBe(true);
+    expect(conversationReplyFitsLevel("Although the circumstances are somewhat ambiguous, what underlying assumption would you challenge?", "A1")).toBe(false);
+    expect(conversationReplyFitsLevel("Oh, super ! Tu veux voir les gadgets ?", "A2")).toBe(false);
+    expect(conversationReplyFitsLevel("Notwithstanding the apparent consensus, which underlying premise would you be most inclined to challenge?", "C2")).toBe(true);
+  });
+
+  test("rewrites a model reply that does not respect the selected level", async () => {
+    process.env.MAMMOUTH_API_KEY = "test-key";
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls += 1;
+      return Response.json({ choices: [{ message: { content: calls === 1 ? "Oh, super ! Tu veux voir les gadgets ?" : "Great! Do you want to see the gadgets?" } }] });
+    }) as typeof fetch;
+
+    const response = await POST(validRequest("A2"));
+    const result = await response.json() as { data: ConversationMessage };
+
+    expect(response.status).toBe(200);
+    expect(calls).toBe(2);
+    expect(result.data.text).toBe("Great! Do you want to see the gadgets?");
+  });
+
   test("requires an account before generating the next mission", async () => {
     const response = await handleAIRequest(routeRequest({ action: "generateNextMission", payload: {} }), async () => undefined);
     expect(response.status).toBe(401);
@@ -161,6 +184,8 @@ describe("Mammouth route", () => {
     expect(response.status).toBe(200);
     expect(mammouthBody.messages?.[0]?.content).toContain("CEFR C1");
     expect(mammouthBody.messages?.[0]?.content).toContain("Nuanced, precise language");
+    expect(mammouthBody.messages?.[0]?.content).toContain("Reply only in English");
+    expect(mammouthBody.messages?.[0]?.content).toContain("never narrate the scene");
     expect(mammouthBody.max_tokens).toBe(260);
     expect(mammouthBody.model).toBe("glm-5.2");
   });

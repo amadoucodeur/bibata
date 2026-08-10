@@ -9,6 +9,7 @@ import {
 } from "./learning-engine";
 import { getMissionsForLevel, missions } from "../data/curriculum";
 import { getMissionsForProfile } from "./personalization";
+import { getAvailableConversationReplies, getDirectConversationOpening } from "./conversation";
 import type { ExerciseAttempt, LearningProfile } from "../types/learning";
 
 const profile: LearningProfile = {
@@ -56,6 +57,20 @@ describe("learner model", () => {
 });
 
 describe("game and curriculum", () => {
+  test("does not suggest a conversation reply that the learner already used", () => {
+    const messages = [
+      { id: "opening", role: "character" as const, text: "Where would you like to go?" },
+      { id: "learner-1", role: "learner" as const, text: "How long does it take by bus?" },
+      { id: "reply-1", role: "character" as const, text: "About ten minutes." },
+    ];
+    expect(getAvailableConversationReplies(["How about walking?", "How long does it take by bus?", "Let's go!"], messages)).toEqual(["Let's go!", "How about walking?"]);
+  });
+
+  test("replaces an AI scene narration with direct character dialogue", () => {
+    expect(getDirectConversationOpening("You're exploring a vibrant tech district. How do you find the exhibit?")).toBe("Hi! Let's explore this together. What would you like to do first?");
+    expect(getDirectConversationOpening("Hi! Where would you like to go?")).toBe("Hi! Where would you like to go?");
+  });
+
   test("weights recognition, comprehension and production in mission score", () => {
     const score = calculateMissionScore([
       attempt(true, "recognition"),

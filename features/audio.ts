@@ -7,6 +7,19 @@ export type UISound = "transition" | "success" | "error" | "message" | "send" | 
 const SOUND_KEY = "bibata-sound-enabled";
 const SOUND_EVENT = "bibata-sound-change";
 let context: AudioContext | undefined;
+let speechRequestId = 0;
+
+const NATURAL_VOICE_NAMES: Record<string, string[]> = {
+  en: ["google us english", "google uk english female", "samantha", "ava", "allison", "aria", "jenny", "joanna", "daniel", "karen", "moira", "tessa", "victoria"],
+  fr: ["google français", "audrey", "aurelie", "amélie", "thomas", "marie"],
+  es: ["google español", "monica", "paulina", "jorge"],
+  de: ["google deutsch", "anna", "petra", "markus"],
+  it: ["google italiano", "alice", "federica", "luca"],
+  pt: ["google português", "luciana", "joana", "felipe"],
+  ar: ["google العربية", "maged", "tarik"],
+};
+
+const NOVELTY_VOICE_PATTERN = /albert|bad news|bahh|bells|boing|bubbles|cellos|deranged|good news|hysterical|jester|organ|princess|superstar|trinoids|whisper|wobble|zarvox/i;
 
 function storageEnabled() {
   if (typeof window === "undefined") return true;
@@ -83,16 +96,56 @@ export function speechLocaleFor(language: string) {
   return locales[language.toLowerCase().split("-")[0]] ?? language;
 }
 
-export function speakText(text: string, language: string) {
-  if (typeof window === "undefined" || !storageEnabled() || !("speechSynthesis" in window) || !text.trim()) return false;
-  window.speechSynthesis.cancel();
-  const utterance = new SpeechSynthesisUtterance(text.trim());
-  utterance.lang = speechLocaleFor(language);
-  utterance.rate = .86;
-  utterance.pitch = 1;
-  const voice = window.speechSynthesis.getVoices().find((item) => item.lang.toLowerCase().startsWith(utterance.lang.slice(0, 2).toLowerCase()));
+export function selectSpeechVoice(voices: SpeechSynthesisVoice[], language: string) {
+  const locale = speechLocaleFor(language).toLowerCase();
+  const languageCode = locale.split("-")[0];
+  const preferredNames = NATURAL_VOICE_NAMES[languageCode] ?? [];
+
+  return voices
+    .filter((voice) => voice.lang.toLowerCase().split("-")[0] === languageCode && !NOVELTY_VOICE_PATTERN.test(voice.name))
+    .map((voice, index) => {
+      const name = voice.name.toLowerCase();
+      const preferenceIndex = preferredNames.findIndex((preferred) => name.includes(preferred));
+      const score =
+        (voice.lang.toLowerCase() === locale ? 50 : 20)
+        + (preferenceIndex >= 0 ? 40 - preferenceIndex : 0)
+        + (/premium|enhanced|natural|neural|siri|google/i.test(name) ? 24 : 0)
+        + (voice.default ? 4 : 0);
+      return { voice, score, index };
+    })
+    .sort((left, right) => right.score - left.score || left.index - right.index)[0]?.voice;
+}
+
+function speakWithLoadedVoices(text: string, language: string, voices: SpeechSynthesisVoice[]) {
+  const utterance = new SpeechSynthesisUtterance(text);
+  const voice = selectSpeechVoice(voices, language);
+  utterance.lang = voice?.lang ?? speechLocaleFor(language);
+  utterance.rate = .94;
+  utterance.pitch = .98;
+  utterance.volume = 1;
   if (voice) utterance.voice = voice;
   window.speechSynthesis.speak(utterance);
+}
+
+export function speakText(text: string, language: string) {
+  if (typeof window === "undefined" || !storageEnabled() || !("speechSynthesis" in window) || !text.trim()) return false;
+  const cleanText = text.trim().replace(/\s+/g, " ");
+  const requestId = ++speechRequestId;
+  window.speechSynthesis.cancel();
+  const voices = window.speechSynthesis.getVoices();
+  if (voices.length) {
+    speakWithLoadedVoices(cleanText, language, voices);
+    return true;
+  }
+
+  const speakWhenReady = () => {
+    window.clearTimeout(timeoutId);
+    window.speechSynthesis.removeEventListener("voiceschanged", speakWhenReady);
+    if (requestId !== speechRequestId) return;
+    speakWithLoadedVoices(cleanText, language, window.speechSynthesis.getVoices());
+  };
+  window.speechSynthesis.addEventListener("voiceschanged", speakWhenReady, { once: true });
+  const timeoutId = window.setTimeout(speakWhenReady, 500);
   return true;
 }
 
