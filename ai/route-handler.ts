@@ -392,7 +392,9 @@ const getPersonalConceptSelection = (level: CEFRLevel, learnerSeed: string, orde
   const kind = newConcepts.length ? "learning" as const : "consolidation" as const;
   const ordered = newConcepts.length ? newConcepts : all;
   if (!ordered.length) return { ids: [] as string[], kind };
-  const start = ((Math.max(1, order) - 1) * 2) % ordered.length;
+  const start = kind === "learning" && excluded.size > 0
+    ? 0
+    : ((Math.max(1, order) - 1) * 3) % ordered.length;
   return { ids: [...ordered.slice(start), ...ordered.slice(0, start)].slice(0, 3), kind };
 };
 

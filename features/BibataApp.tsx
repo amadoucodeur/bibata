@@ -692,7 +692,10 @@ export default function BibataApp() {
       setPlanIssue("");
       try {
         const latestBeforeRequest = await storageRepository.getState();
-        const excludedConceptIds = getAssimilatedConceptIds(latestBeforeRequest.mastery);
+        const excludedConceptIds = [...new Set([
+          ...getAssimilatedConceptIds(latestBeforeRequest.mastery),
+          ...sourcePlan.missions.flatMap((mission) => mission.conceptIds),
+        ])];
         const generated = await aiProvider.generateNextMission(sourcePlan, profileSnapshot.interests, excludedConceptIds);
         const saved = await storageRepository.getState();
         const latestProfile = saved.profiles.find((item) => item.id === profileSnapshot.id);

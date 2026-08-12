@@ -3,6 +3,7 @@ import { countCompletedConversationTurns } from "@/core/conversation";
 import type { CEFRLevel, ConversationMessage, ConversationScenario, LearningPlan } from "@/types/learning";
 import { conversationReplyFitsLevel, handleAIRequest } from "@/ai/route-handler";
 import { AIProviderError, MammouthAIProvider } from "./provider";
+import { concepts } from "@/data/curriculum";
 
 const originalFetch = globalThis.fetch;
 const originalApiKey = process.env.MAMMOUTH_API_KEY;
@@ -459,7 +460,7 @@ describe("Mammouth route", () => {
     expect(result.data.missions).toHaveLength(1);
   });
 
-  test("generates the next mission while preserving one concept from the thread", async () => {
+  test("generates the next mission without overlapping the previous concept group", async () => {
     process.env.MAMMOUTH_API_KEY = "test-key";
     let mammouthCalls = 0;
     globalThis.fetch = (async () => {
@@ -489,7 +490,7 @@ describe("Mammouth route", () => {
     expect(result.data.order).toBe(2);
     expect(result.data.title).toBe("Meet the Artist");
     expect(result.data.conceptIds).toHaveLength(3);
-    expect(result.data.conceptIds.filter((id) => plan.missions[0].conceptIds.includes(id))).toHaveLength(1);
+    expect(result.data.conceptIds.filter((id) => plan.missions[0].conceptIds.includes(id))).toHaveLength(0);
   });
 
   test("excludes assimilated concepts from the next mission", async () => {
@@ -507,8 +508,8 @@ describe("Mammouth route", () => {
     const result = await response.json() as { data: LearningPlan["missions"][number] };
 
     expect(response.status).toBe(200);
-    expect(result.data.conceptIds).toHaveLength(2);
-    expect(result.data.conceptIds).toEqual(expect.arrayContaining(["turn-left", "how-long"]));
+    expect(result.data.conceptIds).toHaveLength(3);
+    expect(result.data.conceptIds.every((id) => !["are-you-free", "how-about", "sounds-good", "take-the-bus"].includes(id))).toBe(true);
     expect(result.data.conceptIds).not.toContain("are-you-free");
   });
 
@@ -525,7 +526,7 @@ describe("Mammouth route", () => {
     const response = await POST(routeRequest({ action: "generateNextMission", payload: {
       level: "A2", interests: ["travel"], learnerSeed: "all-known", planId: "plan-all-known",
       focus: "Pratiquer librement", nextOrder: 4, previousTitles: ["One", "Two", "Three"],
-      excludedConceptIds: ["are-you-free", "how-about", "sounds-good", "take-the-bus", "turn-left", "how-long"],
+      excludedConceptIds: concepts.filter((concept) => concept.level === "A2").map((concept) => concept.id),
     } }));
     const result = await response.json() as { data: LearningPlan["missions"][number] };
 

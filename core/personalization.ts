@@ -31,7 +31,7 @@ const buildExercises = (planId: string, order: number, missionConcepts: Concept[
   const tokens = rotate(example.replace(/[.!?]/g, "").split(/\s+/).filter(Boolean), `${planId}-${order}-tokens`);
   const base = difficultyFloor[level];
 
-  return [
+  const exercises: Exercise[] = [
     {
       id: `${planId}-${order}-meaning`, type: "multiple_choice", concepts: [first.id],
       prompt: `Quelle formulation correspond à « ${first.translation ?? first.value} » ?`, difficulty: base,
@@ -48,6 +48,7 @@ const buildExercises = (planId: string, order: number, missionConcepts: Concept[
       payload: { tokens, answer: example }, evaluationMode: "local",
     },
   ];
+  return exercises.slice(0, missionConcepts.length);
 };
 
 export function buildMissionsFromPlan(plan: LearningPlan, assimilatedConceptIds: Iterable<string> = []): Mission[] {
@@ -95,13 +96,21 @@ export function buildMissionsFromPlan(plan: LearningPlan, assimilatedConceptIds:
 
 export function getMissionsForProfile(profile?: LearningProfile, fallbackLevel = profile?.estimatedLevel ?? "A1", assimilatedConceptIds: Iterable<string> = []) {
   if (profile?.learningPlan?.level === fallbackLevel && profile.learningPlan.missions.length > 0) {
-    const completeMissions = buildMissionsFromPlan(profile.learningPlan);
-    const futureMissions = buildMissionsFromPlan(profile.learningPlan, assimilatedConceptIds);
-    return completeMissions
-      .map((mission) => profile.completedMissionIds.includes(mission.id)
-        ? mission
-        : futureMissions.find((candidate) => candidate.id === mission.id))
-      .filter((mission): mission is Mission => Boolean(mission));
+    const excluded = new Set(assimilatedConceptIds);
+    const result: Mission[] = [];
+    for (const missionPlan of [...profile.learningPlan.missions].sort((left, right) => left.order - right.order)) {
+      const completed = profile.completedMissionIds.includes(missionPlan.id);
+      const [mission] = buildMissionsFromPlan(
+        { ...profile.learningPlan, missions: [missionPlan] },
+        completed ? [] : excluded,
+      );
+      if (!mission) continue;
+      result.push(mission);
+      if (mission.kind !== "consolidation") {
+        for (const conceptId of missionPlan.conceptIds) excluded.add(conceptId);
+      }
+    }
+    return result;
   }
   if (profile) return [];
   return getMissionsForLevel(fallbackLevel);

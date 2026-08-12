@@ -184,4 +184,21 @@ describe("game and curriculum", () => {
     expect(missions[0].kind).toBe("consolidation");
     expect(missions[0].conceptIds).toEqual(["hello", "nice-to-meet-you", "where-from"]);
   });
+
+  test("removes immediate concept loops from an older saved plan", () => {
+    const first = {
+      id: "old-plan-mission-1", order: 1, title: "First", eyebrow: "First", description: "First", interest: "music",
+      conceptIds: ["hello", "nice-to-meet-you", "where-from"],
+      conversation: { title: "First", setting: "One", characterName: "Bibata", characterRole: "Guest", objectives: ["hello", "meet", "origin"], opening: "Hi! What is your name?" },
+    };
+    const second = {
+      ...first, id: "old-plan-mission-2", order: 2, title: "Second",
+      conceptIds: ["where-from", "usually", "wake-up"],
+      conversation: { ...first.conversation, title: "Second", objectives: ["origin", "routine", "wake"] },
+    };
+    const learningPlan = { id: "old-plan", level: "A1" as const, title: "Old", focus: "Old", createdAt: 1, learnerSeed: "seed", missions: [first, second] };
+    const available = getMissionsForProfile({ ...profile, learningPlan, completedMissionIds: [first.id] }, "A1");
+    expect(available[1].conceptIds).toEqual(["usually", "wake-up"]);
+    expect(available[1].conversation.objectives).toEqual(["routine", "wake"]);
+  });
 });
