@@ -22,12 +22,24 @@ export function getDirectConversationOpening(opening?: string) {
 
 const normalizedConcept = (value: string) => value.toLocaleLowerCase().replace(/[’']/g, "").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 
-export function findConceptsUsedByLearner(targets: Array<{ id: string; value: string }>, messages: ConversationMessage[]) {
-  const learnerText = messages.filter((message) => message.role === "learner").map((message) => ` ${normalizedConcept(message.text)} `).join(" ");
+export function findConceptCandidatesInText(targets: string[], learnerText: string) {
+  const text = ` ${normalizedConcept(learnerText)} `;
   return targets.filter((target) => {
-    const phrase = normalizedConcept(target.value);
+    const phrase = normalizedConcept(target);
     if (!phrase) return false;
     const variants = phrase.startsWith("that ") ? [phrase, phrase.slice(5)] : [phrase];
-    return variants.some((variant) => variant && learnerText.includes(` ${variant} `));
-  }).map((target) => target.id);
+    return variants.some((variant) => variant && text.includes(` ${variant} `));
+  });
+}
+
+export function findConceptsUsedByLearner(targets: Array<{ id: string; value: string }>, messages: ConversationMessage[]) {
+  const validated = new Set(
+    messages
+      .flatMap((message) => message.validatedConcepts ?? [])
+      .map(normalizedConcept)
+      .filter(Boolean),
+  );
+  return targets
+    .filter((target) => validated.has(normalizedConcept(target.value)))
+    .map((target) => target.id);
 }

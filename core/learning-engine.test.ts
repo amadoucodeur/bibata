@@ -4,13 +4,14 @@ import {
   createEmptyMastery,
   estimateLevel,
   getNextMission,
+  getAssimilatedConceptIds,
   isConceptAssimilated,
   selectOldConceptsForReview,
   updateConceptMastery,
 } from "./learning-engine";
 import { getMissionsForLevel, missions } from "../data/curriculum";
 import { getMissionsForProfile } from "./personalization";
-import { findConceptsUsedByLearner, getAvailableConversationReplies, getDirectConversationOpening } from "./conversation";
+import { findConceptCandidatesInText, findConceptsUsedByLearner, getAvailableConversationReplies, getDirectConversationOpening } from "./conversation";
 import type { ExerciseAttempt, LearningProfile } from "../types/learning";
 
 const profile: LearningProfile = {
@@ -58,6 +59,12 @@ describe("learner model", () => {
     expect(conversation.assimilatedAt).toBe(2_000);
   });
 
+  test("lists only concepts truly assimilated for future mission exclusion", () => {
+    const guided = updateConceptMastery(undefined, { ...attempt(true, "production"), source: "exercise" });
+    const conversation = updateConceptMastery(undefined, { ...attempt(true, "production"), source: "conversation", answeredAt: 2_000 });
+    expect(getAssimilatedConceptIds({ guided, conversation })).toEqual(["hello"]);
+  });
+
   test("smooths level estimation and increases confidence", () => {
     const result = estimateLevel(profile, [94, 92, 90]);
     expect(result.level).toBe("A1");
@@ -80,7 +87,14 @@ describe("game and curriculum", () => {
     expect(getDirectConversationOpening("Hi! Where would you like to go?")).toBe("Hi! Where would you like to go?");
   });
 
-  test("detects only target concepts actually written by the learner", () => {
+  test("detects lexical candidates without treating them as assimilated", () => {
+    expect(findConceptCandidatesInText(
+      ["How long does it take?", "take the bus"],
+      "How long does it take by bus?",
+    )).toEqual(["How long does it take?"]);
+  });
+
+  test("accepts only concepts semantically validated from a learner turn", () => {
     const used = findConceptsUsedByLearner([
       { id: "how-long", value: "How long does it take?" },
       { id: "take-bus", value: "take the bus" },
@@ -88,8 +102,16 @@ describe("game and curriculum", () => {
     ], [
       { id: "opening", role: "character", text: "You can take the bus." },
       { id: "learner", role: "learner", text: "How long does it take by bus?" },
+      { id: "reply", role: "character", text: "About ten minutes.", validatedConcepts: ["How long does it take?"] },
     ]);
     expect(used).toEqual(["how-long"]);
+  });
+
+  test("does not assimilate an exact expression without semantic validation", () => {
+    expect(findConceptsUsedByLearner(
+      [{ id: "sounds-good", value: "That sounds good" }],
+      [{ id: "learner", role: "learner", text: "The expression is: that sounds good." }],
+    )).toEqual([]);
   });
 
   test("weights recognition, comprehension and production in mission score", () => {
@@ -130,5 +152,21 @@ describe("game and curriculum", () => {
   test("does not silently replace a failed personal plan with static missions", () => {
     expect(getMissionsForProfile(profile, "A1")).toEqual([]);
     expect(getMissionsForProfile(undefined, "A1")).toHaveLength(2);
+  });
+
+  test("removes assimilated concepts from saved future missions", () => {
+    const learningPlan = {
+      id: "plan-test", level: "A1" as const, title: "Personal", focus: "Test", createdAt: 1, learnerSeed: "seed",
+      missions: [{
+        id: "plan-test-mission-1", order: 1, title: "Meet", eyebrow: "Intro", description: "Talk", interest: "music",
+        conceptIds: ["hello", "nice-to-meet-you", "where-from"],
+        conversation: { title: "Meet", setting: "A party", characterName: "Bibata", characterRole: "Guest", objectives: ["hello", "meet", "origin"], opening: "Hi! What is your name?" },
+      }],
+    };
+    const filtered = getMissionsForProfile({ ...profile, learningPlan }, "A1", ["hello"]);
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0].conceptIds).toEqual(["nice-to-meet-you", "where-from"]);
+    expect(filtered[0].conversation.targetConcepts).not.toContain("Hello");
+    expect(filtered[0].conversation.objectives).toEqual(["meet", "origin"]);
   });
 });

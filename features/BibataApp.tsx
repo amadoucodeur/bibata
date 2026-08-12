@@ -7,7 +7,7 @@ import logoMark from "@/public/brand/bibata-logo-d.png";
 import mascot from "@/public/brand/bibata-mascot.webp";
 import { AIProviderError, aiProvider } from "@/ai/provider";
 import { countCompletedConversationTurns, findConceptsUsedByLearner, getAvailableConversationReplies, getDirectConversationOpening } from "@/core/conversation";
-import { calculateMissionScore, createEmptyMastery, isConceptAssimilated, updateConceptMastery } from "@/core/learning-engine";
+import { calculateMissionScore, createEmptyMastery, getAssimilatedConceptIds, isConceptAssimilated, updateConceptMastery } from "@/core/learning-engine";
 import { buildMissionsFromPlan, getMissionsForProfile } from "@/core/personalization";
 import { getConcept, getTrackMeta, interestOptions, languages, missions, roadmap } from "@/data/curriculum";
 import { getContextVisual } from "@/data/context-visuals";
@@ -22,6 +22,7 @@ import {
   CEFR_LEVELS,
   type CEFRLevel,
   type ConversationMessage,
+  type ConceptMastery,
   type Exercise,
   type ExerciseAttempt,
   type LearningProfile,
@@ -324,7 +325,7 @@ interface PWAStatus {
   platform: InstallPlatform;
 }
 
-function SettingsScreen({ profile, billingActiveMissionId, pwa, soundEnabled, planningPlan, onInstall, onToggleSound, onNavigate, onNotify, onResetRequest, onImport, onLevelChange, onReplan }: { profile: LearningProfile; billingActiveMissionId?: string; pwa: PWAStatus; soundEnabled: boolean; planningPlan: boolean; onInstall: () => void; onToggleSound: () => void; onNavigate: (view: View) => void; onNotify: (message: string) => void; onResetRequest: () => void; onImport: (value: string) => void; onLevelChange: (level: CEFRLevel) => void; onReplan: () => void }) {
+function SettingsScreen({ profile, mastery, billingActiveMissionId, pwa, soundEnabled, planningPlan, onInstall, onToggleSound, onNavigate, onNotify, onResetRequest, onImport, onLevelChange, onReplan }: { profile: LearningProfile; mastery: Record<string, ConceptMastery>; billingActiveMissionId?: string; pwa: PWAStatus; soundEnabled: boolean; planningPlan: boolean; onInstall: () => void; onToggleSound: () => void; onNavigate: (view: View) => void; onNotify: (message: string) => void; onResetRequest: () => void; onImport: (value: string) => void; onLevelChange: (level: CEFRLevel) => void; onReplan: () => void }) {
   const importRef = useRef<HTMLInputElement>(null);
   const currentLevel = profile.estimatedLevel ?? "A1";
   const completedCount = getMissionsForProfile(profile, currentLevel).filter((mission) => profile.completedMissionIds.includes(mission.id)).length;
@@ -340,10 +341,16 @@ function SettingsScreen({ profile, billingActiveMissionId, pwa, soundEnabled, pl
   };
   const installAvailable = pwa.canInstall || pwa.platform === "ios";
   const installDescription = pwa.isInstalled ? "Bibata est déjà installée" : pwa.platform === "ios" ? "Partager, puis Sur l’écran d’accueil" : pwa.canInstall ? "Ajoute Bibata à ton écran d’accueil" : "Disponible depuis le menu de ton navigateur";
+  const assimilatedConcepts = Object.values(mastery)
+    .filter(isConceptAssimilated)
+    .map((item) => ({ mastery: item, concept: getConcept(item.conceptId) }))
+    .filter((item) => item.concept?.language === profile.language)
+    .sort((left, right) => (right.mastery.assimilatedAt ?? 0) - (left.mastery.assimilatedAt ?? 0));
   return <main className="app-shell page-enter"><AppHeader completedCount={completedCount} /><section className="page-heading"><p className="eyebrow">Ton expérience</p><h1>Réglages</h1><p>Personnalise Bibata et garde le contrôle sur tes données.</p></section>
     <div className="settings-layout">
       <div>
         <section className="settings-group"><h2>Apprentissage</h2><label className="level-setting"><span className="settings-icon">Aa</span><div><strong>Niveau du parcours</strong><small>{levelDescriptions[currentLevel]} · contenu, difficulté et modèle adaptés</small></div><select value={currentLevel} disabled={planningPlan} onChange={(event) => onLevelChange(event.target.value as CEFRLevel)} aria-label="Niveau du parcours">{CEFR_LEVELS.map((level) => <option key={level} value={level}>{level}</option>)}</select></label><button className="settings-row" type="button" onClick={onReplan} disabled={planningPlan}><span className="settings-icon">✦</span><div><strong>{planningPlan ? "Composition en cours…" : "Recomposer mon parcours"}</strong><small>{profile.learningPlan?.focus ?? "Créer un itinéraire lié à tes intérêts"}</small></div><i aria-hidden="true">↻</i></button></section>
+        <section className="settings-group"><h2>Concepts assimilés</h2><details className="assimilated-library"><summary><span className="settings-icon">✓</span><div><strong>{assimilatedConcepts.length} concept{assimilatedConcepts.length > 1 ? "s" : ""} acquis</strong><small>Retrouve les expressions validées en conversation</small></div><i aria-hidden="true">⌄</i></summary>{assimilatedConcepts.length ? <ul>{assimilatedConcepts.map(({ concept, mastery: item }) => concept && <li key={concept.id}><span>{concept.level}</span><div><strong>{concept.value}</strong><small>{concept.translation}</small></div><time dateTime={new Date(item.assimilatedAt ?? 0).toISOString()}>{new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "short", year: "numeric", timeZone: "Africa/Abidjan" }).format(item.assimilatedAt)}</time></li>)}</ul> : <p>Les concepts apparaîtront ici après un usage juste et cohérent dans le chat.</p>}</details></section>
         <section className="settings-group"><h2>Application</h2><button className="settings-row" type="button" onClick={onToggleSound} aria-pressed={soundEnabled}><span className="settings-icon">{soundEnabled ? "♫" : "×"}</span><div><strong>Sons et prononciation</strong><small>{soundEnabled ? "Voix des concepts et retours sonores activés" : "Tous les sons sont désactivés"}</small></div><i aria-hidden="true">{soundEnabled ? "✓" : "—"}</i></button><button className="settings-row" type="button" onClick={onInstall} disabled={!installAvailable || pwa.isInstalled}><span className="settings-icon">↓</span><div><strong>Installer Bibata</strong><small>{installDescription}</small></div><i aria-hidden="true">{pwa.isInstalled ? "✓" : "›"}</i></button><div className="settings-static-row"><span className={`settings-icon ${pwa.isOnline ? "online" : "offline"}`}>●</span><div><strong>{pwa.isOnline ? "Connexion disponible" : "Mode hors ligne"}</strong><small>{pwa.offlineReady ? "L’interface reste accessible hors ligne" : "Une connexion est nécessaire pour discuter avec Bibata"}</small></div><i aria-hidden="true">{pwa.isOnline ? "✓" : "—"}</i></div></section>
       </div>
       <div>
@@ -472,7 +479,7 @@ function ConversationStage({ mission, level, isOnline, onComplete }: { mission: 
     await requestReply(next);
   };
 
-  return <section className="conversation-stage"><div className="scenario-card"><span className="scenario-avatar" aria-hidden="true"><Image src={mascotAvatar} alt="" sizes="47px" /></span><div><small>Situation réelle · Niveau {level}</small><h1>{mission.conversation.title}</h1><p>{mission.conversation.setting}</p></div><div className="scenario-instructions"><strong>Ton défi avec Bibata</strong><p>Place naturellement ces expressions dans tes réponses.</p><div className="objective-pills">{mission.conversation.objectives.map((item, index) => { const used = usedConceptSet.has(mission.conceptIds[index]); return <span key={item} className={used ? "done" : ""}>{used ? "✓" : index + 1} {item}</span>; })}</div></div></div>
+  return <section className="conversation-stage"><div className="scenario-card"><span className="scenario-avatar" aria-hidden="true"><Image src={mascotAvatar} alt="" sizes="47px" /></span><div><small>Situation réelle · Niveau {level}</small><h1>{mission.conversation.title}</h1><p>{mission.conversation.setting}</p></div><div className="scenario-instructions"><strong>Ton défi avec Bibata</strong><p>Utilise ces expressions quand elles ont vraiment du sens dans l’échange.</p><div className="objective-pills">{mission.conversation.objectives.map((item, index) => { const used = usedConceptSet.has(mission.conceptIds[index]); return <span key={item} className={used ? "done" : ""}>{used ? "✓" : index + 1} {item}</span>; })}</div></div></div>
     <div className="chat-window" aria-live="polite">{messages.map((message) => <div className={`message ${message.role}`} key={message.id}>{message.role === "character" && <small>{mission.conversation.characterName}</small>}<p>{parseMessageText(message.text).map((part, index) => part.bold ? <strong key={index}>{part.text}</strong> : part.text)}</p></div>)}{waiting && <div className="typing" role="status"><span className="typing-avatar" aria-hidden="true">{mission.conversation.characterName.charAt(0)}</span><span className="typing-copy"><strong>{mission.conversation.characterName} réfléchit</strong><small>La conversation continue</small></span><span className="typing-dots" aria-hidden="true"><i /><i /><i /></span></div>}<div ref={chatEndRef} /></div>
     {completedTurns >= 3 && <BibataCoach tone="success" title="Échange terminé" compact announce>Tu as tenu la conversation jusqu’au bout. Je t’ai préparé un bilan clair.</BibataCoach>}
     {completedTurns >= 3 ? <div className="sticky-action"><button className="primary-button" type="button" onClick={() => onComplete(usedConceptIds)}>Voir mon bilan <span>→</span></button></div> : <div className="chat-composer">{aiError && <div className="conversation-error" role="alert"><div><strong>Impossible de poursuivre la conversation</strong><p>{aiError}</p></div><button type="button" onClick={() => void requestReply(messages)} disabled={waiting || !isOnline}>Réessayer</button></div>}{!waiting && availableReplies.length > 0 && <div className="reply-suggestions" aria-label="Réponses suggérées">{availableReplies.map((reply) => <button type="button" key={reply} onClick={() => void send(reply)}>{reply}</button>)}</div>}<form className="chat-input" onSubmit={(event) => { event.preventDefault(); void send(draft); }}><input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={waiting ? "Bibata te répond…" : "Écris ta réponse…"} aria-label="Ta réponse" autoComplete="off" disabled={waiting} /><button type="submit" disabled={waiting || !draft.trim()} aria-label="Envoyer">↑</button></form></div>}
@@ -520,7 +527,7 @@ function MissionFlow({ mission, level, isOnline, soundEnabled, onEngaged, onExit
   else if (stage === "context" && concept) screen = <main className="mission-shell page-enter"><MissionHeader progress={progressMap[stage]} onClose={requestExit} /><section className="context-stage"><p className="eyebrow">En contexte</p><div className="quote-mark">“</div><blockquote>{concept.examples[0].text}</blockquote><p>{concept.examples[0].translation}</p><SpeechButton text={concept.examples[0].text} language={concept.language} enabled={soundEnabled} label="Écouter la phrase" /></section><div className="sticky-action"><button className="primary-button" type="button" onClick={() => { playUISound("transition"); setStage("exercise"); }}>À moi de jouer <span>→</span></button></div></main>;
   else if (stage === "exercise") screen = <main className="mission-shell"><MissionHeader progress={progressMap[stage]} onClose={requestExit} /><ExerciseCard key={mission.exercises[exerciseIndex].id} exercise={mission.exercises[exerciseIndex]} language={missionConcepts[0]?.language ?? "en"} soundEnabled={soundEnabled} onAnswer={recordAnswer} /></main>;
   else if (stage === "conversation") screen = <main className="mission-shell conversation-shell"><MissionHeader progress={progressMap[stage]} onClose={requestExit} /><ConversationStage mission={mission} level={level} isOnline={isOnline} onComplete={completeConversation} /></main>;
-  else screen = <main className="mission-shell result-screen page-enter"><section className="result-hero"><div className="result-mascot" aria-hidden="true"><Image src={mascot} alt="" sizes="150px" /><span>✓</span><i /><i /></div><p className="eyebrow">Mission {mission.order} terminée</p><h1>Beau travail !</h1><p>{assimilatedConceptIds.length ? `Tu as utilisé ${assimilatedConceptIds.length} concept${assimilatedConceptIds.length > 1 ? "s" : ""} dans une vraie conversation.` : "Tu as terminé l’échange. Les concepts non utilisés reviendront pour être assimilés."}</p></section><div className="score-card"><div className="score-total"><span><strong>{score.total}</strong>/100</span><p>Score global</p></div>{(["concepts", "comprehension", "usage"] as const).map((item) => <div className="score-row" key={item}><span>{item === "concepts" ? "Concepts" : item === "comprehension" ? "Compréhension" : "Utilisation"}</span><ProgressLine value={score[item]} label={`Score ${item}`} /><strong>{score[item]}%</strong></div>)}</div><div className="learned-banner"><span>＋{assimilatedConceptIds.length}</span><div><strong>concept{assimilatedConceptIds.length > 1 ? "s" : ""} assimilé{assimilatedConceptIds.length > 1 ? "s" : ""}</strong><p>Seuls les concepts que tu as employés dans le chat sont validés.</p></div></div><div className="sticky-action"><button className="primary-button" type="button" onClick={() => onFinish(attempts, score)}>Revenir à l’accueil <span>→</span></button></div></main>;
+  else screen = <main className="mission-shell result-screen page-enter"><section className="result-hero"><div className="result-mascot" aria-hidden="true"><Image src={mascot} alt="" sizes="150px" /><span>✓</span><i /><i /></div><p className="eyebrow">Mission {mission.order} terminée</p><h1>Beau travail !</h1><p>{assimilatedConceptIds.length ? `Tu as utilisé ${assimilatedConceptIds.length} concept${assimilatedConceptIds.length > 1 ? "s" : ""} avec justesse dans une vraie conversation.` : "Tu as terminé l’échange. Les concepts non utilisés avec un sens clair reviendront pour être assimilés."}</p></section><div className="score-card"><div className="score-total"><span><strong>{score.total}</strong>/100</span><p>Score global</p></div>{(["concepts", "comprehension", "usage"] as const).map((item) => <div className="score-row" key={item}><span>{item === "concepts" ? "Concepts" : item === "comprehension" ? "Compréhension" : "Utilisation"}</span><ProgressLine value={score[item]} label={`Score ${item}`} /><strong>{score[item]}%</strong></div>)}</div><div className="learned-banner"><span>＋{assimilatedConceptIds.length}</span><div><strong>concept{assimilatedConceptIds.length > 1 ? "s" : ""} assimilé{assimilatedConceptIds.length > 1 ? "s" : ""}</strong><p>Présence, cohérence et sens sont vérifiés avant validation.</p></div></div><div className="sticky-action"><button className="primary-button" type="button" onClick={() => onFinish(attempts, score)}>Revenir à l’accueil <span>→</span></button></div></main>;
 
   return <>{screen}{exitConfirm && <ConfirmDialog title="Quitter cette mission ?" description="Ta progression dans cette mission ne sera pas enregistrée." confirmLabel="Quitter" onCancel={() => setExitConfirm(false)} onConfirm={onExit} />}</>;
 }
@@ -553,9 +560,9 @@ export default function BibataApp() {
   const profile = state.profiles.find((item) => item.language === (state.activeLanguage ?? "en"));
   const activeProfileId = profile?.id;
   const currentLevel = profile?.estimatedLevel ?? selectedLevel;
-  const levelMissions = useMemo(() => getMissionsForProfile(profile, currentLevel), [currentLevel, profile]);
-  const levelConceptIds = useMemo(() => new Set(levelMissions.flatMap((mission) => mission.conceptIds)), [levelMissions]);
-  const learnedCount = useMemo(() => Object.values(state.mastery).filter((item) => isConceptAssimilated(item) && levelConceptIds.has(item.conceptId)).length, [levelConceptIds, state.mastery]);
+  const assimilatedConceptIds = useMemo(() => getAssimilatedConceptIds(state.mastery), [state.mastery]);
+  const levelMissions = useMemo(() => getMissionsForProfile(profile, currentLevel, assimilatedConceptIds), [assimilatedConceptIds, currentLevel, profile]);
+  const learnedCount = useMemo(() => Object.values(state.mastery).filter((item) => isConceptAssimilated(item) && getConcept(item.conceptId)?.level === currentLevel).length, [currentLevel, state.mastery]);
   const billingActiveMissionId = useMemo(() => {
     const now = new Date();
     return Object.values(state.missionProgress)
@@ -622,7 +629,7 @@ export default function BibataApp() {
       try {
         const level = profile.estimatedLevel ?? "A1";
         const migrationSeed = `migration-${profile.id}-${level}`.replace(/[^a-zA-Z0-9-]/g, "-").slice(0, 80);
-        const plan = await aiProvider.generateLearningPlan(level, profile.interests, migrationSeed);
+        const plan = await aiProvider.generateLearningPlan(level, profile.interests, migrationSeed, getAssimilatedConceptIds(state.mastery));
         const personalizedMissions = buildMissionsFromPlan(plan);
         const saved = await storageRepository.getState();
         const savedProfile = saved.profiles.find((item) => item.id === profile.id);
@@ -638,7 +645,7 @@ export default function BibataApp() {
       }
     };
     void migrate();
-  }, [authenticated, loading, profile, pwa.isOnline]);
+  }, [authenticated, loading, profile, pwa.isOnline, state.mastery]);
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "instant" });
@@ -683,7 +690,9 @@ export default function BibataApp() {
       setPlanning({ mode, task: "next-mission" });
       setPlanIssue("");
       try {
-        const generated = await aiProvider.generateNextMission(sourcePlan, profileSnapshot.interests);
+        const latestBeforeRequest = await storageRepository.getState();
+        const excludedConceptIds = getAssimilatedConceptIds(latestBeforeRequest.mastery);
+        const generated = await aiProvider.generateNextMission(sourcePlan, profileSnapshot.interests, excludedConceptIds);
         const saved = await storageRepository.getState();
         const latestProfile = saved.profiles.find((item) => item.id === profileSnapshot.id);
         const latestPlan = latestProfile?.learningPlan;
@@ -692,7 +701,7 @@ export default function BibataApp() {
         const nextPlan = existing
           ? latestPlan
           : { ...latestPlan, missions: [...latestPlan.missions, generated].sort((left, right) => left.order - right.order) };
-        const runtimeMissions = buildMissionsFromPlan(nextPlan);
+        const runtimeMissions = buildMissionsFromPlan(nextPlan, getAssimilatedConceptIds(saved.mastery));
         const runtimeMission = runtimeMissions.find((mission) => mission.id === (existing?.id ?? generated.id));
         if (!runtimeMission || existing) return runtimeMission;
         const currentMissionStillAvailable = runtimeMissions.find((mission) => mission.id === latestProfile.currentMissionId && !latestProfile.completedMissionIds.includes(mission.id));
@@ -707,6 +716,11 @@ export default function BibataApp() {
         await storageRepository.saveState(nextState);
         return runtimeMission;
       } catch (error) {
+        if (error instanceof AIProviderError && error.code === "NO_NEW_CONCEPTS") {
+          setPlanIssue("");
+          if (mode === "foreground") notify("Tous les concepts de ce niveau sont assimilés");
+          return undefined;
+        }
         setPlanIssue(getPlanErrorMessage(error, pwa.isOnline));
         return undefined;
       } finally {
@@ -750,9 +764,10 @@ export default function BibataApp() {
     setPlanning({ mode: "foreground", task: "recompose" });
     setPlanIssue("");
     try {
-      const plan = await aiProvider.generateLearningPlan(level, profile.interests, crypto.randomUUID());
-      const nextLevelMissions = buildMissionsFromPlan(plan);
+      const plan = await aiProvider.generateLearningPlan(level, profile.interests, crypto.randomUUID(), assimilatedConceptIds);
+      const nextLevelMissions = buildMissionsFromPlan(plan, assimilatedConceptIds);
       const nextMission = nextLevelMissions[0];
+      if (!nextMission) { notify(`Tous les concepts du niveau ${level} sont déjà assimilés`); return; }
       const nextProfile = { ...profile, estimatedLevel: level, levelConfidence: 1, learningPlan: plan, currentMissionId: nextMission.id, updatedAt: Date.now() };
       const nextState = { ...state, profiles: state.profiles.map((item) => item.id === profile.id ? nextProfile : item) };
       setState(nextState);
@@ -760,6 +775,11 @@ export default function BibataApp() {
       await storageRepository.saveState(nextState);
       notify(`Niveau ${level} appliqué · parcours personnel prêt`);
     } catch (error) {
+      if (error instanceof AIProviderError && error.code === "NO_NEW_CONCEPTS") {
+        setPlanIssue("");
+        notify(`Tous les concepts du niveau ${level} sont déjà assimilés`);
+        return;
+      }
       const message = getPlanErrorMessage(error, pwa.isOnline);
       setPlanIssue(message);
       notify("Le niveau n’a pas été modifié");
@@ -773,10 +793,11 @@ export default function BibataApp() {
     if (!pwa.isOnline) { setPlanIssue(getPlanErrorMessage(undefined, false)); return; }
     setPlanning({ mode: "foreground", task: "recompose" });
     setPlanIssue("");
+    const level = profile.estimatedLevel ?? "A1";
     try {
-      const level = profile.estimatedLevel ?? "A1";
-      const plan = await aiProvider.generateLearningPlan(level, profile.interests, crypto.randomUUID());
-      const personalizedMissions = buildMissionsFromPlan(plan);
+      const plan = await aiProvider.generateLearningPlan(level, profile.interests, crypto.randomUUID(), assimilatedConceptIds);
+      const personalizedMissions = buildMissionsFromPlan(plan, assimilatedConceptIds);
+      if (!personalizedMissions[0]) { notify(`Tous les concepts du niveau ${level} sont déjà assimilés`); return; }
       const nextProfile = { ...profile, learningPlan: plan, currentMissionId: personalizedMissions[0].id, updatedAt: Date.now() };
       const nextState = { ...state, profiles: state.profiles.map((item) => item.id === profile.id ? nextProfile : item) };
       setState(nextState);
@@ -784,6 +805,11 @@ export default function BibataApp() {
       await storageRepository.saveState(nextState);
       notify("Un nouveau parcours personnel est prêt");
     } catch (error) {
+      if (error instanceof AIProviderError && error.code === "NO_NEW_CONCEPTS") {
+        setPlanIssue("");
+        notify(`Tous les concepts du niveau ${level} sont déjà assimilés`);
+        return;
+      }
       setPlanIssue(getPlanErrorMessage(error, pwa.isOnline));
     } finally {
       setPlanning(null);
@@ -797,7 +823,7 @@ export default function BibataApp() {
     for (const attempt of attempts) for (const conceptId of attempt.conceptIds) nextMastery[conceptId] = updateConceptMastery(nextMastery[conceptId], { ...attempt, conceptIds: [conceptId] });
     for (const conceptId of activeMission.conceptIds) if (!nextMastery[conceptId]) nextMastery[conceptId] = { ...createEmptyMastery(conceptId), exposureCount: 1, recognition: 0.08, masteryScore: 0.02, confidence: 0.15, lastSeenAt: Date.now() };
     const completedMissionIds = [...new Set([...latestProfile.completedMissionIds, activeMission.id])];
-    const currentLevelMissions = getMissionsForProfile(latestProfile, latestProfile.estimatedLevel ?? "A1");
+    const currentLevelMissions = getMissionsForProfile(latestProfile, latestProfile.estimatedLevel ?? "A1", getAssimilatedConceptIds(nextMastery));
     const remainingMissions = currentLevelMissions.filter((mission) => !completedMissionIds.includes(mission.id));
     const nextProfile: LearningProfile = { ...latestProfile, completedMissionIds, currentMissionId: remainingMissions[0]?.id, updatedAt: Date.now() };
     const nextState: PersistedState = { ...saved, mastery: nextMastery, profiles: saved.profiles.map((item) => item.id === latestProfile.id ? nextProfile : item), missionProgress: { ...saved.missionProgress, [activeMission.id]: { missionId: activeMission.id, status: "completed", score: score.total, completedAt: Date.now() } } };
@@ -855,7 +881,7 @@ export default function BibataApp() {
   else if (view === "mission") content = <MissionFlow key={`${activeMission.id}-${profile?.estimatedLevel ?? selectedLevel}`} mission={activeMission} level={profile?.estimatedLevel ?? selectedLevel} isOnline={pwa.isOnline} soundEnabled={audio.enabled} onEngaged={() => { if (profile?.learningPlan && authenticated === true) void extendPersonalPlan(profile); }} onExit={() => setView(profile ? "home" : "onboarding-interests")} onFinish={(attempts, score) => void finishMission(attempts, score)} />;
   else if (!profile) content = <OnboardingLanguage showInstallInvite={showOnboardingInstallInvite} installPlatform={pwa.platform} canInstall={pwa.canInstall} onInstall={() => void installApp()} onChoose={chooseLanguage} />;
   else if (view === "progress") content = <ProgressScreen profile={profile} availableMissions={levelMissions} masteryCount={learnedCount} onContinue={() => void startMission()} onNavigate={setView} />;
-  else if (view === "settings") content = <SettingsScreen key={`${pwa.isOnline}-${pwa.offlineReady}-${pwa.canInstall}-${pwa.isInstalled}-${pwa.platform}`} profile={profile} billingActiveMissionId={billingActiveMissionId} pwa={pwa} soundEnabled={audio.enabled} planningPlan={planningPlan} onInstall={() => void installApp()} onToggleSound={audio.toggle} onNavigate={setView} onNotify={notify} onResetRequest={() => setResetConfirm(true)} onImport={(value) => void importData(value)} onLevelChange={(level) => void changeLevel(level)} onReplan={() => void recomposePlan()} />;
+  else if (view === "settings") content = <SettingsScreen key={`${pwa.isOnline}-${pwa.offlineReady}-${pwa.canInstall}-${pwa.isInstalled}-${pwa.platform}`} profile={profile} mastery={state.mastery} billingActiveMissionId={billingActiveMissionId} pwa={pwa} soundEnabled={audio.enabled} planningPlan={planningPlan} onInstall={() => void installApp()} onToggleSound={audio.toggle} onNavigate={setView} onNotify={notify} onResetRequest={() => setResetConfirm(true)} onImport={(value) => void importData(value)} onLevelChange={(level) => void changeLevel(level)} onReplan={() => void recomposePlan()} />;
   else content = <HomeScreen profile={profile} availableMissions={levelMissions} learnedCount={learnedCount} showInstallNudge={pwa.canSuggestInstall && !installNudgeDismissed} showAccountNudge={profile.completedMissionIds.length > 0 && authenticated === false && !accountNudgeDismissed} installPlatform={pwa.platform} offlineReady={pwa.offlineReady} planningPlan={planningPlan} planIssue={effectivePlanIssue} onContinue={() => void startMission()} onRetry={() => void recomposePlan()} onInstall={() => void installApp()} onDismissInstall={dismissInstallNudge} onDismissAccount={dismissAccountNudge} onNavigate={setView} />;
 
   return <>{!pwa.isOnline && <div className="network-banner" role="status"><span aria-hidden="true">○</span>Mode hors ligne · les conversations IA nécessitent une connexion</div>}{content}{notice && <Toast message={notice} />}{installGuideOpen && <InstallGuideDialog platform={pwa.platform} onClose={() => setInstallGuideOpen(false)} />}{accountRequiredOpen && <AccountRequiredDialog onClose={() => setAccountRequiredOpen(false)} />}{resetConfirm && <ConfirmDialog title="Tout recommencer ?" description="Tous les profils, missions et résultats enregistrés sur cet appareil seront effacés." confirmLabel="Tout effacer" onCancel={() => setResetConfirm(false)} onConfirm={() => void reset()} />}</>;

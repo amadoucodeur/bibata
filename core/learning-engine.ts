@@ -68,6 +68,11 @@ export function updateConceptMastery(
 
 export const isConceptAssimilated = (mastery: ConceptMastery | undefined) => Boolean(mastery?.assimilatedAt && mastery.conversationUseCount > 0);
 
+export const getAssimilatedConceptIds = (mastery: Record<string, ConceptMastery>) =>
+  Object.values(mastery)
+    .filter(isConceptAssimilated)
+    .map((item) => item.conceptId);
+
 export function calculateMissionScore(attempts: ExerciseAttempt[]): MissionScore {
   if (attempts.length === 0) return { total: 0, concepts: 0, comprehension: 0, usage: 0 };
   const scoreFor = (modes: ExerciseAttempt["mode"][]) => {

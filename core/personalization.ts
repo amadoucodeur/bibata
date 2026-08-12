@@ -50,13 +50,21 @@ const buildExercises = (planId: string, order: number, missionConcepts: Concept[
   ];
 };
 
-export function buildMissionsFromPlan(plan: LearningPlan): Mission[] {
-  return plan.missions.map((missionPlan) => {
-    const missionConcepts = missionPlan.conceptIds
-      .map((id) => concepts.find((item) => item.id === id && item.level === plan.level))
-      .filter((item): item is Concept => Boolean(item));
+export function buildMissionsFromPlan(plan: LearningPlan, assimilatedConceptIds: Iterable<string> = []): Mission[] {
+  const assimilated = new Set(assimilatedConceptIds);
+  const built: Mission[] = [];
+  for (const missionPlan of plan.missions) {
+    const missionEntries = missionPlan.conceptIds.flatMap((id, index): Array<{ concept: Concept; objective?: string }> => {
+      const concept = concepts.find((item) => item.id === id && item.level === plan.level);
+      return concept && !assimilated.has(concept.id)
+        ? [{ concept, objective: missionPlan.conversation.objectives[index] }]
+        : [];
+    });
+    const missionConcepts = missionEntries.map((entry) => entry.concept);
 
-    return {
+    if (!missionConcepts.length) continue;
+
+    built.push({
       id: missionPlan.id,
       level: plan.level,
       worldId: "foundations",
@@ -73,18 +81,25 @@ export function buildMissionsFromPlan(plan: LearningPlan): Mission[] {
         setting: missionPlan.conversation.setting,
         characterName: missionPlan.conversation.characterName,
         characterRole: missionPlan.conversation.characterRole,
-        objectives: missionPlan.conversation.objectives,
+        objectives: missionEntries.map((entry) => entry.objective ?? `utiliser « ${entry.concept.value} » naturellement`),
         targetConcepts: missionConcepts.map((item) => item.value),
         suggestedReplies: missionConcepts.map((item) => item.examples[0]?.text ?? item.value),
         opening: missionPlan.conversation.opening,
       },
-    };
-  });
+    });
+  }
+  return built;
 }
 
-export function getMissionsForProfile(profile?: LearningProfile, fallbackLevel = profile?.estimatedLevel ?? "A1") {
+export function getMissionsForProfile(profile?: LearningProfile, fallbackLevel = profile?.estimatedLevel ?? "A1", assimilatedConceptIds: Iterable<string> = []) {
   if (profile?.learningPlan?.level === fallbackLevel && profile.learningPlan.missions.length > 0) {
-    return buildMissionsFromPlan(profile.learningPlan);
+    const completeMissions = buildMissionsFromPlan(profile.learningPlan);
+    const futureMissions = buildMissionsFromPlan(profile.learningPlan, assimilatedConceptIds);
+    return completeMissions
+      .map((mission) => profile.completedMissionIds.includes(mission.id)
+        ? mission
+        : futureMissions.find((candidate) => candidate.id === mission.id))
+      .filter((mission): mission is Mission => Boolean(mission));
   }
   if (profile) return [];
   return getMissionsForLevel(fallbackLevel);

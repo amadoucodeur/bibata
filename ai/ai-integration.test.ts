@@ -109,6 +109,62 @@ describe("Mammouth route", () => {
     expect(result.data.text).toBe("Nice to meet you, Sam!");
   });
 
+  test("validates a target only when Mammouth confirms coherent use", async () => {
+    process.env.MAMMOUTH_API_KEY = "test-key";
+    globalThis.fetch = (async () => Response.json({
+      choices: [{ message: { content: JSON.stringify({
+        reply: "That makes sense. What music do you like?",
+        validTargets: ["I like"],
+      }) } }],
+    })) as typeof fetch;
+
+    const response = await POST(routeRequest({
+      action: "generateConversationTurn",
+      payload: {
+        scenario: { ...scenario, id: `${scenario.id}-semantic-${requestSequence}` },
+        messages: [messages[0], { id: "learner-semantic", role: "learner", text: "I like music." }],
+        level: "A1",
+      },
+    }));
+    const result = await response.json() as { data: ConversationMessage };
+
+    expect(response.status).toBe(200);
+    expect(result.data.validatedConcepts).toEqual(["I like"]);
+  });
+
+  test("never validates a target that is absent from the learner message", async () => {
+    process.env.MAMMOUTH_API_KEY = "test-key";
+    globalThis.fetch = (async () => Response.json({
+      choices: [{ message: { content: JSON.stringify({
+        reply: "Nice to meet you, Sam!",
+        validTargets: ["goodbye"],
+      }) } }],
+    })) as typeof fetch;
+
+    const response = await POST(validRequest());
+    const result = await response.json() as { data: ConversationMessage };
+
+    expect(response.status).toBe(200);
+    expect(result.data.validatedConcepts).toEqual([]);
+  });
+
+  test("asks Mammouth to reject copied, meaningless and off-topic uses", async () => {
+    process.env.MAMMOUTH_API_KEY = "test-key";
+    let systemPrompt = "";
+    globalThis.fetch = (async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as { messages: Array<{ role: string; content: string }> };
+      systemPrompt = body.messages[0]?.content ?? "";
+      return Response.json({ choices: [{ message: { content: JSON.stringify({ reply: "Nice to meet you!", validTargets: [] }) } }] });
+    }) as typeof fetch;
+
+    const response = await POST(validRequest());
+
+    expect(response.status).toBe(200);
+    expect(systemPrompt).toContain("coherent and relevant");
+    expect(systemPrompt).toContain("Reject copied instructions");
+    expect(systemPrompt).toContain("minor level-appropriate grammar");
+  });
+
   test("rejects malformed requests before calling Mammouth", async () => {
     const response = await POST(routeRequest("{"));
     const result = await response.json() as { code: string };
@@ -186,7 +242,7 @@ describe("Mammouth route", () => {
     expect(mammouthBody.messages?.[0]?.content).toContain("Nuanced, precise language");
     expect(mammouthBody.messages?.[0]?.content).toContain("Reply only in English");
     expect(mammouthBody.messages?.[0]?.content).toContain("never narrate the scene");
-    expect(mammouthBody.max_tokens).toBe(260);
+    expect(mammouthBody.max_tokens).toBe(308);
     expect(mammouthBody.model).toBe("glm-5.2");
   });
 
@@ -434,6 +490,26 @@ describe("Mammouth route", () => {
     expect(result.data.title).toBe("Meet the Artist");
     expect(result.data.conceptIds).toHaveLength(3);
     expect(result.data.conceptIds.filter((id) => plan.missions[0].conceptIds.includes(id))).toHaveLength(1);
+  });
+
+  test("excludes assimilated concepts from the next mission", async () => {
+    process.env.MAMMOUTH_API_KEY = "test-key";
+    globalThis.fetch = (async () => Response.json({ choices: [{ message: { content: JSON.stringify({
+      title: "A Fresh Plan", theme: "De nouvelles formulations", opening: "What would you like to plan today?",
+    }) } }] })) as typeof fetch;
+    const a2Ids = scenario.targetConcepts;
+    void a2Ids;
+    const response = await POST(routeRequest({ action: "generateNextMission", payload: {
+      level: "A2", interests: ["music"], learnerSeed: "exclude-known", planId: "plan-exclude-known",
+      focus: "Continuer sans répétition", nextOrder: 2, previousTitles: ["First"],
+      excludedConceptIds: ["are-you-free", "how-about", "sounds-good", "take-the-bus"],
+    } }));
+    const result = await response.json() as { data: LearningPlan["missions"][number] };
+
+    expect(response.status).toBe(200);
+    expect(result.data.conceptIds).toHaveLength(2);
+    expect(result.data.conceptIds).toEqual(expect.arrayContaining(["turn-left", "how-long"]));
+    expect(result.data.conceptIds).not.toContain("are-you-free");
   });
 
   test("rejects a generated plan with an incomplete conversation", async () => {

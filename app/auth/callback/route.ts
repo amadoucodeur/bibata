@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
-import { getPaymentBaseUrl } from "@/billing/config";
+import { getRequestOrigin } from "@/billing/config";
 import { createSupabaseServerClient } from "@/supabase/server";
 
 export const runtime = "nodejs";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const origin = getPaymentBaseUrl(request.url);
+  const origin = getRequestOrigin(request.url);
   const code = searchParams.get("code");
   const requestedNext = searchParams.get("next") ?? "/?onglet=reglages";
   const next = requestedNext.startsWith("/") && !requestedNext.startsWith("//") ? requestedNext : "/?onglet=reglages";
@@ -17,4 +17,3 @@ export async function GET(request: Request) {
   }
   return NextResponse.redirect(`${origin}/?auth=erreur&onglet=reglages`);
 }
-

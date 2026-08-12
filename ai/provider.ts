@@ -6,8 +6,8 @@ export interface AIProvider {
     messages: ConversationMessage[],
     level: CEFRLevel,
   ): Promise<ConversationMessage>;
-  generateLearningPlan(level: CEFRLevel, interests: string[], learnerSeed: string): Promise<LearningPlan>;
-  generateNextMission(plan: LearningPlan, interests: string[]): Promise<PersonalizedMissionPlan>;
+  generateLearningPlan(level: CEFRLevel, interests: string[], learnerSeed: string, excludedConceptIds?: string[]): Promise<LearningPlan>;
+  generateNextMission(plan: LearningPlan, interests: string[], excludedConceptIds?: string[]): Promise<PersonalizedMissionPlan>;
 }
 
 interface AIErrorResponse {
@@ -31,7 +31,11 @@ const isConversationMessage = (value: unknown): value is ConversationMessage => 
   return typeof message.id === "string"
     && message.role === "character"
     && typeof message.text === "string"
-    && message.text.trim().length > 0;
+    && message.text.trim().length > 0
+    && (message.validatedConcepts === undefined
+      || (Array.isArray(message.validatedConcepts)
+        && message.validatedConcepts.length <= 12
+        && message.validatedConcepts.every((target) => typeof target === "string" && target.trim().length > 0)));
 };
 
 const isLearningPlan = (value: unknown): value is LearningPlan => {
@@ -50,7 +54,8 @@ const isLearningPlan = (value: unknown): value is LearningPlan => {
       && typeof mission.order === "number"
       && typeof mission.title === "string"
       && Array.isArray(mission.conceptIds)
-      && mission.conceptIds.length === 3
+      && mission.conceptIds.length >= 1
+      && mission.conceptIds.length <= 3
       && typeof mission.conversation?.opening === "string"
     ));
 };
@@ -66,7 +71,8 @@ const isPersonalizedMissionPlan = (value: unknown): value is PersonalizedMission
     && typeof mission.description === "string"
     && typeof mission.interest === "string"
     && Array.isArray(mission.conceptIds)
-    && mission.conceptIds.length === 3
+    && mission.conceptIds.length >= 1
+    && mission.conceptIds.length <= 3
     && typeof mission.conversation?.opening === "string"
     && typeof mission.conversation?.characterName === "string";
 };
@@ -117,16 +123,16 @@ export class MammouthAIProvider implements AIProvider {
     return data;
   }
 
-  async generateLearningPlan(level: CEFRLevel, interests: string[], learnerSeed: string): Promise<LearningPlan> {
+  async generateLearningPlan(level: CEFRLevel, interests: string[], learnerSeed: string, excludedConceptIds: string[] = []): Promise<LearningPlan> {
     const timeout = level === "C1" || level === "C2" ? 36_000 : 24_000;
-    const data = await this.request("generateLearningPlan", { level, interests, learnerSeed }, timeout);
+    const data = await this.request("generateLearningPlan", { level, interests, learnerSeed, excludedConceptIds }, timeout);
     if (!isLearningPlan(data)) {
       throw new AIProviderError("INVALID_API_RESPONSE", 502, "Invalid AI learning plan");
     }
     return data;
   }
 
-  async generateNextMission(plan: LearningPlan, interests: string[]): Promise<PersonalizedMissionPlan> {
+  async generateNextMission(plan: LearningPlan, interests: string[], excludedConceptIds: string[] = []): Promise<PersonalizedMissionPlan> {
     const data = await this.request("generateNextMission", {
       level: plan.level,
       interests,
@@ -135,6 +141,7 @@ export class MammouthAIProvider implements AIProvider {
       focus: plan.focus,
       nextOrder: plan.missions.length + 1,
       previousTitles: plan.missions.slice(-4).map((mission) => mission.title),
+      excludedConceptIds,
     }, plan.level === "C1" || plan.level === "C2" ? 30_000 : 22_000);
     if (!isPersonalizedMissionPlan(data)) {
       throw new AIProviderError("INVALID_API_RESPONSE", 502, "Invalid AI mission");

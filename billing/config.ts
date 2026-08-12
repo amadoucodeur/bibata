@@ -32,3 +32,7 @@ export function getPaymentBaseUrl(requestUrl: string) {
   if (/^https?:\/\//.test(configured)) return configured;
   return new URL(requestUrl).origin;
 }
+
+export function getRequestOrigin(requestUrl: string) {
+  return new URL(requestUrl).origin;
+}

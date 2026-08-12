@@ -135,6 +135,8 @@ export interface ConversationMessage {
   id: string;
   role: "character" | "learner";
   text: string;
+  /** Target expressions semantically validated in the preceding learner turn. */
+  validatedConcepts?: string[];
 }
 
 export interface ConversationScenario {
