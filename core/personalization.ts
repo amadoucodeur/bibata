@@ -54,9 +54,10 @@ export function buildMissionsFromPlan(plan: LearningPlan, assimilatedConceptIds:
   const assimilated = new Set(assimilatedConceptIds);
   const built: Mission[] = [];
   for (const missionPlan of plan.missions) {
+    const conceptsToExclude = missionPlan.kind === "consolidation" ? new Set<string>() : assimilated;
     const missionEntries = missionPlan.conceptIds.flatMap((id, index): Array<{ concept: Concept; objective?: string }> => {
       const concept = concepts.find((item) => item.id === id && item.level === plan.level);
-      return concept && !assimilated.has(concept.id)
+      return concept && !conceptsToExclude.has(concept.id)
         ? [{ concept, objective: missionPlan.conversation.objectives[index] }]
         : [];
     });
@@ -72,6 +73,7 @@ export function buildMissionsFromPlan(plan: LearningPlan, assimilatedConceptIds:
       title: missionPlan.title,
       eyebrow: missionPlan.eyebrow,
       description: missionPlan.description,
+      kind: missionPlan.kind ?? "learning",
       durationMinutes: plan.level === "C1" || plan.level === "C2" ? 10 : plan.level === "B1" || plan.level === "B2" ? 8 : 6,
       conceptIds: missionConcepts.map((item) => item.id),
       exercises: buildExercises(plan.id, missionPlan.order, missionConcepts, plan.level),

@@ -512,6 +512,29 @@ describe("Mammouth route", () => {
     expect(result.data.conceptIds).not.toContain("are-you-free");
   });
 
+  test("continues with a consolidation mission when every concept is assimilated", async () => {
+    process.env.MAMMOUTH_API_KEY = "test-key";
+    let systemPrompt = "";
+    globalThis.fetch = (async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as { messages: Array<{ content: string }> };
+      systemPrompt = body.messages[0]?.content ?? "";
+      return Response.json({ choices: [{ message: { content: JSON.stringify({
+        title: "Use It in a New Place", theme: "Réagir dans une nouvelle situation", opening: "How would you handle this plan today?",
+      }) } }] });
+    }) as typeof fetch;
+    const response = await POST(routeRequest({ action: "generateNextMission", payload: {
+      level: "A2", interests: ["travel"], learnerSeed: "all-known", planId: "plan-all-known",
+      focus: "Pratiquer librement", nextOrder: 4, previousTitles: ["One", "Two", "Three"],
+      excludedConceptIds: ["are-you-free", "how-about", "sounds-good", "take-the-bus", "turn-left", "how-long"],
+    } }));
+    const result = await response.json() as { data: LearningPlan["missions"][number] };
+
+    expect(response.status).toBe(200);
+    expect(result.data.kind).toBe("consolidation");
+    expect(result.data.conceptIds).toHaveLength(3);
+    expect(systemPrompt).toContain("consolidation mission");
+  });
+
   test("rejects a generated plan with an incomplete conversation", async () => {
     process.env.MAMMOUTH_API_KEY = "test-key";
     const invalidPlan = structuredClone(generatedA2Plan);

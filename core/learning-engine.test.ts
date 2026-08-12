@@ -169,4 +169,19 @@ describe("game and curriculum", () => {
     expect(filtered[0].conversation.targetConcepts).not.toContain("Hello");
     expect(filtered[0].conversation.objectives).toEqual(["meet", "origin"]);
   });
+
+  test("keeps acquired concepts in an explicit consolidation mission", () => {
+    const learningPlan = {
+      id: "plan-review", level: "A1" as const, title: "Practice", focus: "Réutiliser", createdAt: 1, learnerSeed: "seed",
+      missions: [{
+        id: "plan-review-mission-2", order: 2, title: "Another Meeting", eyebrow: "Consolidation", description: "Practice again", interest: "travel", kind: "consolidation" as const,
+        conceptIds: ["hello", "nice-to-meet-you", "where-from"],
+        conversation: { title: "Another Meeting", setting: "A station", characterName: "Bibata", characterRole: "Traveller", objectives: ["hello", "meet", "origin"], opening: "Hi! Where are you travelling today?" },
+      }],
+    };
+    const missions = getMissionsForProfile({ ...profile, learningPlan }, "A1", ["hello", "nice-to-meet-you", "where-from"]);
+    expect(missions).toHaveLength(1);
+    expect(missions[0].kind).toBe("consolidation");
+    expect(missions[0].conceptIds).toEqual(["hello", "nice-to-meet-you", "where-from"]);
+  });
 });

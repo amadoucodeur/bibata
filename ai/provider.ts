@@ -70,6 +70,7 @@ const isPersonalizedMissionPlan = (value: unknown): value is PersonalizedMission
     && typeof mission.eyebrow === "string"
     && typeof mission.description === "string"
     && typeof mission.interest === "string"
+    && (mission.kind === undefined || mission.kind === "learning" || mission.kind === "consolidation")
     && Array.isArray(mission.conceptIds)
     && mission.conceptIds.length >= 1
     && mission.conceptIds.length <= 3

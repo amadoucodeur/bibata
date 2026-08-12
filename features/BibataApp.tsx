@@ -282,7 +282,7 @@ function HomeScreen({ profile, availableMissions, learnedCount, showInstallNudge
     <div className="home-grid">
       <section className="hero-card" aria-labelledby="next-mission-title"><div className="hero-card-top"><span className="language-pill">{profile.languageFlag} {profile.languageName}</span><span className="hero-level">Niveau {profile.estimatedLevel ?? "A1"}</span></div>
         <div className="level-row"><div><small>Missions terminées</small><strong>{completed}</strong></div><div><small>Concepts assimilés</small><strong>{learnedCount}</strong></div></div>
-        {nextMission ? <div className="mission-preview"><span className="mission-number">{String(nextMission.order).padStart(2, "0")}</span><div><small>Prochaine mission · {nextMission.eyebrow}</small><h2 id="next-mission-title">{nextMission.title}</h2><p>Environ {nextMission.durationMinutes} min · {nextMission.conceptIds.length} concepts</p></div></div> : <div className="mission-preview"><span className="mission-number">✦</span><div><small>Prochaine sélection</small><h2 id="next-mission-title">{planningPlan ? "Elle arrive…" : "Prête à être composée"}</h2><p>Bibata repart exactement de là où tu t’es arrêté·e.</p></div></div>}
+        {nextMission ? <div className="mission-preview"><span className="mission-number">{String(nextMission.order).padStart(2, "0")}</span><div><small>{nextMission.kind === "consolidation" ? "Nouvelle situation de pratique" : "Prochaine mission"} · {nextMission.eyebrow}</small><h2 id="next-mission-title">{nextMission.title}</h2><p>Environ {nextMission.durationMinutes} min · {nextMission.conceptIds.length} expression{nextMission.conceptIds.length > 1 ? "s" : ""} {nextMission.kind === "consolidation" ? "à réutiliser" : "à apprendre"}</p></div></div> : <div className="mission-preview"><span className="mission-number">✦</span><div><small>Prochaine sélection</small><h2 id="next-mission-title">{planningPlan ? "Elle arrive…" : "Prête à être composée"}</h2><p>Bibata repart exactement de là où tu t’es arrêté·e.</p></div></div>}
         <button className="primary-button light" type="button" onClick={!nextMission && planIssue ? onRetry : onContinue} disabled={!nextMission && planningPlan}>{nextMission ? (completed ? "Continuer mon parcours" : "Commencer ma première mission") : (planIssue ? "Réessayer" : "Préparer la suite")}<span>{planningPlan && !nextMission ? "✦" : "→"}</span></button></section>
       <div className="home-side">
         {showAccountNudge && <aside className="account-nudge" aria-label="Sauvegarder ma progression"><button type="button" className="account-nudge-dismiss" onClick={onDismissAccount} aria-label="Me le rappeler dans sept jours">×</button><span className="account-nudge-avatar" aria-hidden="true"><Image src={mascotAvatar} alt="" sizes="54px" /></span><div><span className="account-nudge-kicker">Ta première mission est terminée</span><strong>Ne perds pas ta progression</strong><p>Connecte-toi pour la retrouver sur tes autres appareils et continuer exactement où tu t’es arrêté·e.</p><a href="/auth/google?next=/">Continuer avec Google <span aria-hidden="true">→</span></a></div></aside>}
@@ -487,6 +487,7 @@ function ConversationStage({ mission, level, isOnline, onComplete }: { mission: 
 }
 
 function MissionFlow({ mission, level, isOnline, soundEnabled, onEngaged, onExit, onFinish }: { mission: Mission; level: CEFRLevel; isOnline: boolean; soundEnabled: boolean; onEngaged: () => void; onExit: () => void; onFinish: (attempts: ExerciseAttempt[], score: MissionScore) => void }) {
+  const isConsolidation = mission.kind === "consolidation";
   const [stage, setStage] = useState<MissionStage>("intro");
   const [conceptIndex, setConceptIndex] = useState(0);
   const [exerciseIndex, setExerciseIndex] = useState(0);
@@ -522,12 +523,12 @@ function MissionFlow({ mission, level, isOnline, soundEnabled, onEngaged, onExit
   };
 
   let screen: ReactNode;
-  if (stage === "intro") screen = <main className="mission-shell intro-screen page-enter"><MissionHeader progress={progressMap[stage]} onClose={requestExit} /><section className="mission-intro"><div className="mission-guide-portrait" aria-hidden="true"><span>✦</span><Image src={mascotAvatar} alt="" sizes="150px" /><i /><i /></div><p className="eyebrow">Mission {mission.order} · {mission.eyebrow}</p><h1>{mission.title}</h1><p>{mission.description}</p><div className="mission-meta"><span>◷ {mission.durationMinutes} min</span><span>＋ {mission.conceptIds.length} concepts</span><span>Niveau {level}</span></div></section><div className="sticky-action"><button className="primary-button" type="button" onClick={beginMission}>Commencer <span>→</span></button></div></main>;
-  else if (stage === "discover" && concept && conceptVisual) screen = <main className="mission-shell page-enter"><MissionHeader progress={progressMap[stage]} onClose={requestExit} /><section className="concept-stage"><p className="eyebrow">Nouveau concept · {conceptIndex + 1} sur {missionConcepts.length}</p><div className="concept-visual contextual"><Image src={conceptVisual.src} alt={conceptVisual.alt} fill unoptimized sizes="(min-width: 700px) 360px, calc(100vw - 48px)" /><span className="context-visual-shade" aria-hidden="true" /></div><h1>{concept.value}</h1><p className="translation">{concept.translation}</p><SpeechButton text={concept.value} language={concept.language} enabled={soundEnabled} /></section><div className="sticky-action"><button className="primary-button" type="button" onClick={advanceConcept}>J’ai compris <span>→</span></button></div></main>;
+  if (stage === "intro") screen = <main className="mission-shell intro-screen page-enter"><MissionHeader progress={progressMap[stage]} onClose={requestExit} /><section className="mission-intro"><div className="mission-guide-portrait" aria-hidden="true"><span>✦</span><Image src={mascotAvatar} alt="" sizes="150px" /><i /><i /></div><p className="eyebrow">Mission {mission.order} · {mission.eyebrow}</p><h1>{mission.title}</h1><p>{mission.description}</p><div className="mission-meta"><span>◷ {mission.durationMinutes} min</span><span>{isConsolidation ? "↻" : "＋"} {mission.conceptIds.length} expression{mission.conceptIds.length > 1 ? "s" : ""} {isConsolidation ? "à pratiquer" : "à apprendre"}</span><span>Niveau {level}</span></div></section><div className="sticky-action"><button className="primary-button" type="button" onClick={beginMission}>Commencer <span>→</span></button></div></main>;
+  else if (stage === "discover" && concept && conceptVisual) screen = <main className="mission-shell page-enter"><MissionHeader progress={progressMap[stage]} onClose={requestExit} /><section className="concept-stage"><p className="eyebrow">{isConsolidation ? "Expression à réactiver" : "Nouveau concept"} · {conceptIndex + 1} sur {missionConcepts.length}</p><div className="concept-visual contextual"><Image src={conceptVisual.src} alt={conceptVisual.alt} fill unoptimized sizes="(min-width: 700px) 360px, calc(100vw - 48px)" /><span className="context-visual-shade" aria-hidden="true" /></div><h1>{concept.value}</h1><p className="translation">{concept.translation}</p><SpeechButton text={concept.value} language={concept.language} enabled={soundEnabled} /></section><div className="sticky-action"><button className="primary-button" type="button" onClick={advanceConcept}>{isConsolidation ? "Je m’en souviens" : "J’ai compris"} <span>→</span></button></div></main>;
   else if (stage === "context" && concept) screen = <main className="mission-shell page-enter"><MissionHeader progress={progressMap[stage]} onClose={requestExit} /><section className="context-stage"><p className="eyebrow">En contexte</p><div className="quote-mark">“</div><blockquote>{concept.examples[0].text}</blockquote><p>{concept.examples[0].translation}</p><SpeechButton text={concept.examples[0].text} language={concept.language} enabled={soundEnabled} label="Écouter la phrase" /></section><div className="sticky-action"><button className="primary-button" type="button" onClick={() => { playUISound("transition"); setStage("exercise"); }}>À moi de jouer <span>→</span></button></div></main>;
   else if (stage === "exercise") screen = <main className="mission-shell"><MissionHeader progress={progressMap[stage]} onClose={requestExit} /><ExerciseCard key={mission.exercises[exerciseIndex].id} exercise={mission.exercises[exerciseIndex]} language={missionConcepts[0]?.language ?? "en"} soundEnabled={soundEnabled} onAnswer={recordAnswer} /></main>;
   else if (stage === "conversation") screen = <main className="mission-shell conversation-shell"><MissionHeader progress={progressMap[stage]} onClose={requestExit} /><ConversationStage mission={mission} level={level} isOnline={isOnline} onComplete={completeConversation} /></main>;
-  else screen = <main className="mission-shell result-screen page-enter"><section className="result-hero"><div className="result-mascot" aria-hidden="true"><Image src={mascot} alt="" sizes="150px" /><span>✓</span><i /><i /></div><p className="eyebrow">Mission {mission.order} terminée</p><h1>Beau travail !</h1><p>{assimilatedConceptIds.length ? `Tu as utilisé ${assimilatedConceptIds.length} concept${assimilatedConceptIds.length > 1 ? "s" : ""} avec justesse dans une vraie conversation.` : "Tu as terminé l’échange. Les concepts non utilisés avec un sens clair reviendront pour être assimilés."}</p></section><div className="score-card"><div className="score-total"><span><strong>{score.total}</strong>/100</span><p>Score global</p></div>{(["concepts", "comprehension", "usage"] as const).map((item) => <div className="score-row" key={item}><span>{item === "concepts" ? "Concepts" : item === "comprehension" ? "Compréhension" : "Utilisation"}</span><ProgressLine value={score[item]} label={`Score ${item}`} /><strong>{score[item]}%</strong></div>)}</div><div className="learned-banner"><span>＋{assimilatedConceptIds.length}</span><div><strong>concept{assimilatedConceptIds.length > 1 ? "s" : ""} assimilé{assimilatedConceptIds.length > 1 ? "s" : ""}</strong><p>Présence, cohérence et sens sont vérifiés avant validation.</p></div></div><div className="sticky-action"><button className="primary-button" type="button" onClick={() => onFinish(attempts, score)}>Revenir à l’accueil <span>→</span></button></div></main>;
+  else screen = <main className="mission-shell result-screen page-enter"><section className="result-hero"><div className="result-mascot" aria-hidden="true"><Image src={mascot} alt="" sizes="150px" /><span>✓</span><i /><i /></div><p className="eyebrow">Mission {mission.order} terminée</p><h1>Beau travail !</h1><p>{isConsolidation ? (assimilatedConceptIds.length ? `Tu as réutilisé ${assimilatedConceptIds.length} expression${assimilatedConceptIds.length > 1 ? "s" : ""} avec justesse dans un nouveau contexte.` : "Tu as terminé cette nouvelle situation. Les expressions moins naturelles reviendront dans d’autres contextes.") : (assimilatedConceptIds.length ? `Tu as utilisé ${assimilatedConceptIds.length} concept${assimilatedConceptIds.length > 1 ? "s" : ""} avec justesse dans une vraie conversation.` : "Tu as terminé l’échange. Les concepts non utilisés avec un sens clair reviendront pour être assimilés.")}</p></section><div className="score-card"><div className="score-total"><span><strong>{score.total}</strong>/100</span><p>Score global</p></div>{(["concepts", "comprehension", "usage"] as const).map((item) => <div className="score-row" key={item}><span>{item === "concepts" ? "Concepts" : item === "comprehension" ? "Compréhension" : "Utilisation"}</span><ProgressLine value={score[item]} label={`Score ${item}`} /><strong>{score[item]}%</strong></div>)}</div><div className="learned-banner"><span>{isConsolidation ? "↗" : "＋"}{assimilatedConceptIds.length}</span><div><strong>{isConsolidation ? `expression${assimilatedConceptIds.length > 1 ? "s" : ""} consolidée${assimilatedConceptIds.length > 1 ? "s" : ""}` : `concept${assimilatedConceptIds.length > 1 ? "s" : ""} assimilé${assimilatedConceptIds.length > 1 ? "s" : ""}`}</strong><p>{isConsolidation ? "La pratique renforce tes acquis sans les compter comme nouveaux." : "Présence, cohérence et sens sont vérifiés avant validation."}</p></div></div><div className="sticky-action"><button className="primary-button" type="button" onClick={() => onFinish(attempts, score)}>Revenir à l’accueil <span>→</span></button></div></main>;
 
   return <>{screen}{exitConfirm && <ConfirmDialog title="Quitter cette mission ?" description="Ta progression dans cette mission ne sera pas enregistrée." confirmLabel="Quitter" onCancel={() => setExitConfirm(false)} onConfirm={onExit} />}</>;
 }
@@ -716,11 +717,6 @@ export default function BibataApp() {
         await storageRepository.saveState(nextState);
         return runtimeMission;
       } catch (error) {
-        if (error instanceof AIProviderError && error.code === "NO_NEW_CONCEPTS") {
-          setPlanIssue("");
-          if (mode === "foreground") notify("Tous les concepts de ce niveau sont assimilés");
-          return undefined;
-        }
         setPlanIssue(getPlanErrorMessage(error, pwa.isOnline));
         return undefined;
       } finally {
@@ -767,7 +763,7 @@ export default function BibataApp() {
       const plan = await aiProvider.generateLearningPlan(level, profile.interests, crypto.randomUUID(), assimilatedConceptIds);
       const nextLevelMissions = buildMissionsFromPlan(plan, assimilatedConceptIds);
       const nextMission = nextLevelMissions[0];
-      if (!nextMission) { notify(`Tous les concepts du niveau ${level} sont déjà assimilés`); return; }
+      if (!nextMission) throw new Error("Le parcours généré ne contient aucune mission");
       const nextProfile = { ...profile, estimatedLevel: level, levelConfidence: 1, learningPlan: plan, currentMissionId: nextMission.id, updatedAt: Date.now() };
       const nextState = { ...state, profiles: state.profiles.map((item) => item.id === profile.id ? nextProfile : item) };
       setState(nextState);
@@ -775,11 +771,6 @@ export default function BibataApp() {
       await storageRepository.saveState(nextState);
       notify(`Niveau ${level} appliqué · parcours personnel prêt`);
     } catch (error) {
-      if (error instanceof AIProviderError && error.code === "NO_NEW_CONCEPTS") {
-        setPlanIssue("");
-        notify(`Tous les concepts du niveau ${level} sont déjà assimilés`);
-        return;
-      }
       const message = getPlanErrorMessage(error, pwa.isOnline);
       setPlanIssue(message);
       notify("Le niveau n’a pas été modifié");
@@ -797,7 +788,7 @@ export default function BibataApp() {
     try {
       const plan = await aiProvider.generateLearningPlan(level, profile.interests, crypto.randomUUID(), assimilatedConceptIds);
       const personalizedMissions = buildMissionsFromPlan(plan, assimilatedConceptIds);
-      if (!personalizedMissions[0]) { notify(`Tous les concepts du niveau ${level} sont déjà assimilés`); return; }
+      if (!personalizedMissions[0]) throw new Error("Le parcours généré ne contient aucune mission");
       const nextProfile = { ...profile, learningPlan: plan, currentMissionId: personalizedMissions[0].id, updatedAt: Date.now() };
       const nextState = { ...state, profiles: state.profiles.map((item) => item.id === profile.id ? nextProfile : item) };
       setState(nextState);
@@ -805,11 +796,6 @@ export default function BibataApp() {
       await storageRepository.saveState(nextState);
       notify("Un nouveau parcours personnel est prêt");
     } catch (error) {
-      if (error instanceof AIProviderError && error.code === "NO_NEW_CONCEPTS") {
-        setPlanIssue("");
-        notify(`Tous les concepts du niveau ${level} sont déjà assimilés`);
-        return;
-      }
       setPlanIssue(getPlanErrorMessage(error, pwa.isOnline));
     } finally {
       setPlanning(null);
