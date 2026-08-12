@@ -110,10 +110,26 @@ export function estimateLevel(profile: LearningProfile, recentScores: number[]) 
 export function selectOldConceptsForReview(
   mastery: Record<string, ConceptMastery>,
   limit = 3,
+  now = Date.now(),
 ) {
   return Object.values(mastery)
-    .filter((item) => item.exposureCount > 0 && item.masteryScore < LEARNING_CONSTANTS.reviewThreshold)
-    .sort((a, b) => (a.nextSuggestedExposureAt ?? 0) - (b.nextSuggestedExposureAt ?? 0))
+    .filter((item) => item.exposureCount > 0 && (
+      item.masteryScore < LEARNING_CONSTANTS.reviewThreshold
+      || (item.nextSuggestedExposureAt !== undefined && item.nextSuggestedExposureAt <= now)
+    ))
+    .sort((a, b) => {
+      const reviewScore = (item: ConceptMastery) => {
+        const dueAt = item.nextSuggestedExposureAt ?? item.lastSeenAt ?? 0;
+        const overdueDays = Math.max(0, now - dueAt) / 86_400_000;
+        const weakness = 1 - item.masteryScore;
+        const errors = item.incorrectCount / Math.max(1, item.correctCount + item.incorrectCount);
+        const productionGap = 1 - item.production;
+        return overdueDays * 2 + weakness * 4 + errors * 2 + productionGap;
+      };
+      return reviewScore(b) - reviewScore(a)
+        || (a.lastSeenAt ?? 0) - (b.lastSeenAt ?? 0)
+        || a.conceptId.localeCompare(b.conceptId);
+    })
     .slice(0, limit)
     .map((item) => item.conceptId);
 }

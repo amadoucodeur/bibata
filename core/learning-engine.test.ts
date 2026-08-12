@@ -51,6 +51,14 @@ describe("learner model", () => {
     expect(selectOldConceptsForReview({ weak, strong })).toEqual(["hello"]);
   });
 
+  test("prioritizes overdue, weak and error-prone concepts for consolidation", () => {
+    const now = 10 * 86_400_000;
+    const overdue = { ...createEmptyMastery("overdue"), exposureCount: 4, masteryScore: 0.55, production: 0.4, nextSuggestedExposureAt: now - 5 * 86_400_000, lastSeenAt: 1 };
+    const fragile = { ...createEmptyMastery("fragile"), exposureCount: 4, masteryScore: 0.2, production: 0.1, incorrectCount: 3, correctCount: 1, nextSuggestedExposureAt: now + 86_400_000, lastSeenAt: 2 };
+    const recent = { ...createEmptyMastery("recent"), exposureCount: 4, masteryScore: 0.5, production: 0.5, nextSuggestedExposureAt: now + 86_400_000, lastSeenAt: 3 };
+    expect(selectOldConceptsForReview({ overdue, fragile, recent }, 2, now)).toEqual(["overdue", "fragile"]);
+  });
+
   test("assimilates a concept only after the learner uses it in conversation", () => {
     const guided = updateConceptMastery(undefined, { ...attempt(true, "production"), source: "exercise" });
     const conversation = updateConceptMastery(guided, { ...attempt(true, "production"), source: "conversation", answeredAt: 2_000 });
@@ -92,6 +100,13 @@ describe("game and curriculum", () => {
       ["How long does it take?", "take the bus"],
       "How long does it take by bus?",
     )).toEqual(["How long does it take?"]);
+  });
+
+  test("detects natural conjugated and contracted variants before semantic validation", () => {
+    expect(findConceptCandidatesInText(
+      ["look for", "give up", "come up with", "I'd like…"],
+      "I'm looking for a solution. We came up with one, so I didn't give up. I'd like to try it.",
+    )).toEqual(["look for", "give up", "come up with", "I'd like…"]);
   });
 
   test("accepts only concepts semantically validated from a learner turn", () => {
@@ -168,6 +183,8 @@ describe("game and curriculum", () => {
     expect(filtered[0].conceptIds).toEqual(["nice-to-meet-you", "where-from"]);
     expect(filtered[0].conversation.targetConcepts).not.toContain("Hello");
     expect(filtered[0].conversation.objectives).toEqual(["meet", "origin"]);
+    expect(filtered[0].exercises).toHaveLength(3);
+    expect(filtered[0].exercises.map((exercise) => exercise.type)).toEqual(["multiple_choice", "multiple_choice", "sentence_builder"]);
   });
 
   test("keeps acquired concepts in an explicit consolidation mission", () => {

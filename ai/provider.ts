@@ -7,7 +7,7 @@ export interface AIProvider {
     level: CEFRLevel,
   ): Promise<ConversationMessage>;
   generateLearningPlan(level: CEFRLevel, interests: string[], learnerSeed: string, excludedConceptIds?: string[]): Promise<LearningPlan>;
-  generateNextMission(plan: LearningPlan, interests: string[], excludedConceptIds?: string[]): Promise<PersonalizedMissionPlan>;
+  generateNextMission(plan: LearningPlan, interests: string[], excludedConceptIds?: string[], reviewConceptIds?: string[]): Promise<PersonalizedMissionPlan>;
 }
 
 interface AIErrorResponse {
@@ -133,7 +133,7 @@ export class MammouthAIProvider implements AIProvider {
     return data;
   }
 
-  async generateNextMission(plan: LearningPlan, interests: string[], excludedConceptIds: string[] = []): Promise<PersonalizedMissionPlan> {
+  async generateNextMission(plan: LearningPlan, interests: string[], excludedConceptIds: string[] = [], reviewConceptIds: string[] = []): Promise<PersonalizedMissionPlan> {
     const data = await this.request("generateNextMission", {
       level: plan.level,
       interests,
@@ -143,6 +143,7 @@ export class MammouthAIProvider implements AIProvider {
       nextOrder: plan.missions.length + 1,
       previousTitles: plan.missions.slice(-4).map((mission) => mission.title),
       excludedConceptIds,
+      reviewConceptIds,
     }, plan.level === "C1" || plan.level === "C2" ? 30_000 : 22_000);
     if (!isPersonalizedMissionPlan(data)) {
       throw new AIProviderError("INVALID_API_RESPONSE", 502, "Invalid AI mission");

@@ -7,7 +7,7 @@ import logoMark from "@/public/brand/bibata-logo-d.png";
 import mascot from "@/public/brand/bibata-mascot.webp";
 import { AIProviderError, aiProvider } from "@/ai/provider";
 import { countCompletedConversationTurns, findConceptsUsedByLearner, getAvailableConversationReplies, getDirectConversationOpening } from "@/core/conversation";
-import { calculateMissionScore, createEmptyMastery, getAssimilatedConceptIds, isConceptAssimilated, updateConceptMastery } from "@/core/learning-engine";
+import { calculateMissionScore, createEmptyMastery, getAssimilatedConceptIds, isConceptAssimilated, selectOldConceptsForReview, updateConceptMastery } from "@/core/learning-engine";
 import { buildMissionsFromPlan, getMissionsForProfile } from "@/core/personalization";
 import { getConcept, getTrackMeta, interestOptions, languages, missions, roadmap } from "@/data/curriculum";
 import { getContextVisual } from "@/data/context-visuals";
@@ -440,13 +440,39 @@ function ConversationStage({ mission, level, isOnline, onComplete }: { mission: 
   const [aiError, setAiError] = useState("");
   const messageId = useRef(0);
   const requestInFlight = useRef(false);
-  const chatEndRef = useRef<HTMLDivElement>(null);
+  const chatWindowRef = useRef<HTMLDivElement>(null);
   const completedTurns = countCompletedConversationTurns(messages);
   const availableReplies = getAvailableConversationReplies(mission.conversation.suggestedReplies, messages);
   const usedConceptIds = findConceptsUsedByLearner(mission.conceptIds.map((id) => ({ id, value: getConcept(id)?.value ?? "" })), messages);
   const usedConceptSet = new Set(usedConceptIds);
 
-  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }); }, [messages, waiting, aiError]);
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      const chatWindow = chatWindowRef.current;
+      if (chatWindow) chatWindow.scrollTo({ top: chatWindow.scrollHeight, behavior: "smooth" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [messages, waiting, aiError]);
+
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+    let frame = 0;
+    const keepLatestMessageVisible = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => {
+        const chatWindow = chatWindowRef.current;
+        if (chatWindow) chatWindow.scrollTop = chatWindow.scrollHeight;
+      });
+    };
+    viewport.addEventListener("resize", keepLatestMessageVisible);
+    viewport.addEventListener("scroll", keepLatestMessageVisible);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      viewport.removeEventListener("resize", keepLatestMessageVisible);
+      viewport.removeEventListener("scroll", keepLatestMessageVisible);
+    };
+  }, []);
 
   const requestReply = async (conversationMessages: ConversationMessage[]) => {
     if (requestInFlight.current) return;
@@ -480,9 +506,9 @@ function ConversationStage({ mission, level, isOnline, onComplete }: { mission: 
   };
 
   return <section className="conversation-stage"><div className="scenario-card"><span className="scenario-avatar" aria-hidden="true"><Image src={mascotAvatar} alt="" sizes="47px" /></span><div><small>Situation réelle · Niveau {level}</small><h1>{mission.conversation.title}</h1><p>{mission.conversation.setting}</p></div><div className="scenario-instructions"><strong>Ton défi avec Bibata</strong><p>Utilise ces expressions quand elles ont vraiment du sens dans l’échange.</p><div className="objective-pills">{mission.conversation.objectives.map((item, index) => { const used = usedConceptSet.has(mission.conceptIds[index]); return <span key={item} className={used ? "done" : ""}>{used ? "✓" : index + 1} {item}</span>; })}</div></div></div>
-    <div className="chat-window" aria-live="polite">{messages.map((message) => <div className={`message ${message.role}`} key={message.id}>{message.role === "character" && <small>{mission.conversation.characterName}</small>}<p>{parseMessageText(message.text).map((part, index) => part.bold ? <strong key={index}>{part.text}</strong> : part.text)}</p></div>)}{waiting && <div className="typing" role="status"><span className="typing-avatar" aria-hidden="true">{mission.conversation.characterName.charAt(0)}</span><span className="typing-copy"><strong>{mission.conversation.characterName} réfléchit</strong><small>La conversation continue</small></span><span className="typing-dots" aria-hidden="true"><i /><i /><i /></span></div>}<div ref={chatEndRef} /></div>
+    <div className="chat-window" ref={chatWindowRef} aria-live="polite">{messages.map((message) => <div className={`message ${message.role}`} key={message.id}>{message.role === "character" && <small>{mission.conversation.characterName}</small>}<p>{parseMessageText(message.text).map((part, index) => part.bold ? <strong key={index}>{part.text}</strong> : part.text)}</p></div>)}{waiting && <div className="typing" role="status"><span className="typing-avatar" aria-hidden="true">{mission.conversation.characterName.charAt(0)}</span><span className="typing-copy"><strong>{mission.conversation.characterName} réfléchit</strong><small>La conversation continue</small></span><span className="typing-dots" aria-hidden="true"><i /><i /><i /></span></div>}<div aria-hidden="true" /></div>
     {completedTurns >= 3 && <BibataCoach tone="success" title="Échange terminé" compact announce>Tu as tenu la conversation jusqu’au bout. Je t’ai préparé un bilan clair.</BibataCoach>}
-    {completedTurns >= 3 ? <div className="sticky-action"><button className="primary-button" type="button" onClick={() => onComplete(usedConceptIds)}>Voir mon bilan <span>→</span></button></div> : <div className="chat-composer">{aiError && <div className="conversation-error" role="alert"><div><strong>Impossible de poursuivre la conversation</strong><p>{aiError}</p></div><button type="button" onClick={() => void requestReply(messages)} disabled={waiting || !isOnline}>Réessayer</button></div>}{!waiting && availableReplies.length > 0 && <div className="reply-suggestions" aria-label="Réponses suggérées">{availableReplies.map((reply) => <button type="button" key={reply} onClick={() => void send(reply)}>{reply}</button>)}</div>}<form className="chat-input" onSubmit={(event) => { event.preventDefault(); void send(draft); }}><input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={waiting ? "Bibata te répond…" : "Écris ta réponse…"} aria-label="Ta réponse" autoComplete="off" disabled={waiting} /><button type="submit" disabled={waiting || !draft.trim()} aria-label="Envoyer">↑</button></form></div>}
+    {completedTurns >= 3 ? <div className="sticky-action"><button className="primary-button" type="button" onClick={() => onComplete(usedConceptIds)}>Voir mon bilan <span>→</span></button></div> : <div className="chat-composer">{aiError && <div className="conversation-error" role="alert"><div><strong>Impossible de poursuivre la conversation</strong><p>{aiError}</p></div><button type="button" onClick={() => void requestReply(messages)} disabled={waiting || !isOnline}>Réessayer</button></div>}{!waiting && availableReplies.length > 0 && <div className="reply-suggestions" aria-label="Réponses suggérées">{availableReplies.map((reply) => <button type="button" key={reply} onClick={() => void send(reply)}>{reply}</button>)}</div>}<form className="chat-input" onSubmit={(event) => { event.preventDefault(); void send(draft); }}><input value={draft} onChange={(event) => setDraft(event.target.value)} onFocus={() => { const chatWindow = chatWindowRef.current; if (chatWindow) chatWindow.scrollTop = chatWindow.scrollHeight; }} placeholder={waiting ? "Bibata te répond…" : "Écris ta réponse…"} aria-label="Ta réponse" autoComplete="off" disabled={waiting} /><button type="submit" disabled={waiting || !draft.trim()} aria-label="Envoyer">↑</button></form></div>}
   </section>;
 }
 
@@ -497,7 +523,14 @@ function MissionFlow({ mission, level, isOnline, soundEnabled, onEngaged, onExit
   const [exitConfirm, setExitConfirm] = useState(false);
   const missionConcepts = mission.conceptIds.map((id) => getConcept(id)).filter((item) => item !== undefined);
   const concept = missionConcepts[conceptIndex];
-  const conceptVisual = concept ? getContextVisual(concept.categories) : undefined;
+  const conceptVisual = concept ? getContextVisual({
+    categories: concept.categories,
+    conceptId: concept.id,
+    interest: mission.interest,
+    missionId: mission.id,
+    title: mission.title,
+    setting: mission.conversation.setting,
+  }) : undefined;
   const progressMap: Record<MissionStage, number> = { intro: 4, discover: 20 + conceptIndex * 6, context: 48, exercise: 55 + exerciseIndex * 10, conversation: 88, result: 100 };
   const requestExit = () => { if (stage === "intro") onExit(); else setExitConfirm(true); };
   const beginMission = () => { playUISound("transition"); onEngaged(); setStage("discover"); };
@@ -696,7 +729,11 @@ export default function BibataApp() {
           ...getAssimilatedConceptIds(latestBeforeRequest.mastery),
           ...sourcePlan.missions.flatMap((mission) => mission.conceptIds),
         ])];
-        const generated = await aiProvider.generateNextMission(sourcePlan, profileSnapshot.interests, excludedConceptIds);
+        const level = profileSnapshot.estimatedLevel ?? sourcePlan.level;
+        const recentlyPracticed = new Set(sourcePlan.missions.slice(-2).flatMap((mission) => mission.conceptIds));
+        const reviewConceptIds = selectOldConceptsForReview(latestBeforeRequest.mastery, 3)
+          .filter((id) => getConcept(id)?.level === level && !recentlyPracticed.has(id));
+        const generated = await aiProvider.generateNextMission(sourcePlan, profileSnapshot.interests, excludedConceptIds, reviewConceptIds);
         const saved = await storageRepository.getState();
         const latestProfile = saved.profiles.find((item) => item.id === profileSnapshot.id);
         const latestPlan = latestProfile?.learningPlan;

@@ -160,6 +160,7 @@ export interface Mission {
   title: string;
   eyebrow: string;
   description: string;
+  interest?: string;
   kind?: "learning" | "consolidation";
   durationMinutes: number;
   conceptIds: string[];

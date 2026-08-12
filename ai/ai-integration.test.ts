@@ -536,6 +536,25 @@ describe("Mammouth route", () => {
     expect(systemPrompt).toContain("consolidation mission");
   });
 
+  test("prioritizes review concepts supplied by the learner model during consolidation", async () => {
+    process.env.MAMMOUTH_API_KEY = "test-key";
+    globalThis.fetch = (async () => Response.json({ choices: [{ message: { content: JSON.stringify({
+      title: "Fresh Practice", theme: "Nouvelle situation", opening: "What should we do first?",
+    }) } }] })) as typeof fetch;
+    const reviewConceptIds = ["enough", "across-from", "too-much"];
+    const response = await POST(routeRequest({ action: "generateNextMission", payload: {
+      level: "A2", interests: ["travel"], learnerSeed: "adaptive-review", planId: "plan-adaptive-review",
+      focus: "Pratiquer au bon moment", nextOrder: 7, previousTitles: ["Previous"],
+      excludedConceptIds: concepts.filter((concept) => concept.level === "A2").map((concept) => concept.id),
+      reviewConceptIds,
+    } }));
+    const result = await response.json() as { data: LearningPlan["missions"][number] };
+
+    expect(response.status).toBe(200);
+    expect(result.data.kind).toBe("consolidation");
+    expect(result.data.conceptIds).toEqual(reviewConceptIds);
+  });
+
   test("rejects a generated plan with an incomplete conversation", async () => {
     process.env.MAMMOUTH_API_KEY = "test-key";
     const invalidPlan = structuredClone(generatedA2Plan);

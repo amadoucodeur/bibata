@@ -382,7 +382,7 @@ const seedHash = (value: string) => {
   return result >>> 0;
 };
 
-const getPersonalConceptSelection = (level: CEFRLevel, learnerSeed: string, order: number, excludedConceptIds: string[] = []) => {
+const getPersonalConceptSelection = (level: CEFRLevel, learnerSeed: string, order: number, excludedConceptIds: string[] = [], reviewConceptIds: string[] = []) => {
   const excluded = new Set(excludedConceptIds);
   const all = concepts
     .filter((item) => item.level === level)
@@ -390,9 +390,12 @@ const getPersonalConceptSelection = (level: CEFRLevel, learnerSeed: string, orde
     .sort((left, right) => seedHash(`${learnerSeed}-${left}`) - seedHash(`${learnerSeed}-${right}`));
   const newConcepts = all.filter((id) => !excluded.has(id));
   const kind = newConcepts.length ? "learning" as const : "consolidation" as const;
-  const ordered = newConcepts.length ? newConcepts : all;
+  const requestedReview = reviewConceptIds.filter((id) => all.includes(id));
+  const ordered = newConcepts.length ? newConcepts : [...new Set([...requestedReview, ...all])];
   if (!ordered.length) return { ids: [] as string[], kind };
-  const start = kind === "learning" && excluded.size > 0
+  const start = kind === "consolidation" && requestedReview.length > 0
+    ? 0
+    : kind === "learning" && excluded.size > 0
     ? 0
     : ((Math.max(1, order) - 1) * 3) % ordered.length;
   return { ids: [...ordered.slice(start), ...ordered.slice(0, start)].slice(0, 3), kind };
@@ -426,7 +429,7 @@ function unwrapGeneratedObject(value: unknown) {
     ?? object;
 }
 
-function buildPersonalizedMission(value: unknown, context: { level: CEFRLevel; learnerSeed: string; interests: string[]; planId: string; order: number; excludedConceptIds?: string[] }): PersonalizedMissionPlan {
+function buildPersonalizedMission(value: unknown, context: { level: CEFRLevel; learnerSeed: string; interests: string[]; planId: string; order: number; excludedConceptIds?: string[]; reviewConceptIds?: string[] }): PersonalizedMissionPlan {
   if (!value || typeof value !== "object") {
     throw new AIRouteError(502, "MAMMOUTH_INVALID_PLAN", "Mammouth returned an invalid learning plan");
   }
@@ -434,7 +437,7 @@ function buildPersonalizedMission(value: unknown, context: { level: CEFRLevel; l
   const conversation = mission.conversation && typeof mission.conversation === "object"
     ? mission.conversation as { title?: unknown; setting?: unknown; characterRole?: unknown; opening?: unknown; openingLine?: unknown; initialMessage?: unknown }
     : undefined;
-  const selection = getPersonalConceptSelection(context.level, context.learnerSeed, context.order, context.excludedConceptIds);
+  const selection = getPersonalConceptSelection(context.level, context.learnerSeed, context.order, context.excludedConceptIds, context.reviewConceptIds);
   const conceptIds = selection.ids;
   const missionTargets = conceptIds.map((conceptId) => concepts.find((item) => item.id === conceptId));
   const objectives = missionTargets.map((target) => `utiliser « ${target?.value ?? "l’expression ciblée"} » naturellement`);
@@ -534,7 +537,7 @@ async function generateLearningPlan(payload: unknown) {
 
 function parseNextMissionPayload(payload: unknown) {
   const base = parseLearningPlanPayload(payload);
-  const candidate = payload as { planId?: unknown; focus?: unknown; nextOrder?: unknown; previousTitles?: unknown };
+  const candidate = payload as { planId?: unknown; focus?: unknown; nextOrder?: unknown; previousTitles?: unknown; reviewConceptIds?: unknown };
   const planId = cleanText(candidate.planId, 100);
   const focus = cleanText(candidate.focus, 140);
   const nextOrder = candidate.nextOrder;
@@ -544,13 +547,22 @@ function parseNextMissionPayload(payload: unknown) {
   if (!isStringArray(candidate.previousTitles, 8)) {
     throw new AIRouteError(400, "INVALID_PREVIOUS_MISSIONS", "Invalid previous missions");
   }
-  return { ...base, planId, focus, nextOrder: Number(nextOrder), previousTitles: candidate.previousTitles.map((item) => cleanText(item, 80)) };
+  const reviewConceptIds = candidate.reviewConceptIds === undefined
+    ? []
+    : isStringArray(candidate.reviewConceptIds, 12)
+      ? [...new Set(candidate.reviewConceptIds.map((item) => cleanText(item, 100)))]
+        .filter((id) => concepts.some((concept) => concept.id === id && concept.level === base.level))
+      : undefined;
+  if (!reviewConceptIds) {
+    throw new AIRouteError(400, "INVALID_REVIEW_CONCEPTS", "Invalid review concepts");
+  }
+  return { ...base, planId, focus, nextOrder: Number(nextOrder), previousTitles: candidate.previousTitles.map((item) => cleanText(item, 80)), reviewConceptIds };
 }
 
 async function generateNextMission(payload: unknown) {
   const context = parseNextMissionPayload(payload);
   const levelConfig = LEVEL_CONFIG[context.level];
-  const selection = getPersonalConceptSelection(context.level, context.learnerSeed, context.nextOrder, context.excludedConceptIds);
+  const selection = getPersonalConceptSelection(context.level, context.learnerSeed, context.nextOrder, context.excludedConceptIds, context.reviewConceptIds);
   const targetIds = selection.ids;
   const missionTargets = targetIds.map((id) => {
     const item = concepts.find((concept) => concept.id === id);

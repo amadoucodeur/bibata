@@ -48,7 +48,9 @@ const buildExercises = (planId: string, order: number, missionConcepts: Concept[
       payload: { tokens, answer: example }, evaluationMode: "local",
     },
   ];
-  return exercises.slice(0, missionConcepts.length);
+  // Même avec un ou deux concepts, la mission conserve le cycle pédagogique
+  // complet : reconnaître, comprendre en contexte, puis produire.
+  return exercises;
 };
 
 export function buildMissionsFromPlan(plan: LearningPlan, assimilatedConceptIds: Iterable<string> = []): Mission[] {
@@ -74,6 +76,7 @@ export function buildMissionsFromPlan(plan: LearningPlan, assimilatedConceptIds:
       title: missionPlan.title,
       eyebrow: missionPlan.eyebrow,
       description: missionPlan.description,
+      interest: missionPlan.interest,
       kind: missionPlan.kind ?? "learning",
       durationMinutes: plan.level === "C1" || plan.level === "C2" ? 10 : plan.level === "B1" || plan.level === "B2" ? 8 : 6,
       conceptIds: missionConcepts.map((item) => item.id),
